@@ -11,6 +11,9 @@ from .events import hub, STATS
 from .security import hash_pw, check_pw, make_token, read_token
 from .extract import extract
 from .scoring import score, risks
+from .nlsearch import parse_search
+from .neardup import is_near_duplicate
+from .ratelimit import limiter
 app = FastAPI(title="Smart Sniper AI", version="3.0.0-core")
 if os.environ.get("AUTO_CREATE_TABLES") == "1": Base.metadata.create_all(engine)  # dev/tests only; production uses Alembic
 def current_user(authorization: str = Header(""), db: Session = Depends(get_db)) -> User:
@@ -31,7 +34,8 @@ def register(c: Cred, db: Session = Depends(get_db)):
     u = User(email=c.email.lower(), password_hash=hash_pw(c.password), role="super_admin" if c.email.lower() in boot else "user"); db.add(u); db.commit()
     return {"id": u.id, "email": u.email}
 @app.post("/api/auth/login")
-def login(c: Cred, db: Session = Depends(get_db)):
+def login(c: Cred, request: Request, db: Session = Depends(get_db)):
+    if not limiter.allow("login:" + (request.client.host if request.client else "?") + ":" + c.email.lower(), 10, 300): raise HTTPException(429, "Too many attempts; try again later")
     u = db.scalar(select(User).where(User.email == c.email.lower()))
     if not u or not check_pw(c.password, u.password_hash): raise HTTPException(401, "Invalid credentials")
     return _issue(db, u.id)
@@ -69,6 +73,11 @@ def resume(sid: str, u: User = Depends(current_user), db: Session = Depends(get_
 @app.delete("/api/searches/{sid}", status_code=204)
 def delete(sid: str, u: User = Depends(current_user), db: Session = Depends(get_db)):
     s = _own_search(db, u, sid); s.deleted_at = dt.datetime.now(dt.timezone.utc); db.commit()
+class NlIn(BaseModel): text: str = Field(min_length=5, max_length=1000)
+@app.post("/api/searches/parse")
+def parse_nl(b: NlIn, u: User = Depends(current_user)):
+    """Free rule-based natural-language -> search parameters (no external AI cost)."""
+    return parse_search(b.text)
 class IngestIn(BaseModel):
     search_id: str
     text: str = Field(min_length=5, max_length=5000)
@@ -172,6 +181,8 @@ def pipeline(db, u, s, text, url):
     fp = hashlib.sha256(" ".join(text.lower().split()).encode()).hexdigest()
     if db.scalar(select(Listing).where(Listing.user_id == u.id, Listing.fingerprint == fp)):
         raise HTTPException(409, "Duplicate listing")
+    recent = [x.raw_text for x in db.scalars(select(Listing).where(Listing.user_id == u.id, Listing.search_id == s.id).order_by(Listing.created_at.desc()).limit(200))]
+    if is_near_duplicate(text, recent): raise HTTPException(409, "Near-duplicate listing")
     ex = _timed("nlp_extraction", extract, text)
     rk = _timed("filter_antispam", risks, ex, s)
     sc = _timed("matching", score, ex, s, text)

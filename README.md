@@ -26,3 +26,12 @@ Root Directory `frontend`, env `VITE_API_URL=https://<railway-app>`; add that Ve
 
 ## Verification status
 Tested automatically (SQLite, mocked externals): auth/refresh/reset, isolation, RBAC, Telegram webhook, WebSocket, PayPal webhook logic, WhatsApp hook. **Not tested against real services**: PayPal API calls, WhatsApp Cloud API, SMTP, Telegram, Postgres, Docker.
+
+
+## Free deployment
+See `docs/DEPLOYMENT-FREE.md` (GitHub + Vercel + Render + Neon/Supabase, all free tiers). `render.yaml` and `.github/workflows/keepalive.yml` are included.
+
+## New in this round
+- `POST /api/searches/parse` - natural-language search creation (rule-based, free).
+- Near-duplicate detection (local trigram embeddings, no API).
+- Login rate limiting (in-memory).

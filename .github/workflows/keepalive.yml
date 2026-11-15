@@ -1,0 +1,12 @@
+# Free: pings the API every 10 minutes so a free Render instance does not sleep.
+# Set repo variable API_URL (Settings > Secrets and variables > Actions > Variables), e.g. https://smart-sniper-api.onrender.com
+name: keepalive
+on:
+  schedule: [{cron: "*/10 * * * *"}]
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    if: ${{ vars.API_URL != '' }}
+    steps:
+      - run: curl -fsS --max-time 30 "${{ vars.API_URL }}/api/health"
