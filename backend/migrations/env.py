@@ -1,9 +1,29 @@
 from logging.config import fileConfig
 
+import re as _re
+
+import sqlalchemy as _sa
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
+from sqlalchemy.dialects.postgresql.base import PGDDLCompiler as _PGDDLCompiler
 
 from alembic import context
+
+# --- Postgres fix: migrations were written for SQLite (DEFAULT 0 / DEFAULT 1).
+# Postgres requires false/true for Boolean columns. ---
+_orig_spec = _PGDDLCompiler.get_column_specification
+
+
+def _pg_bool_spec(self, column, **kw):
+    spec = _orig_spec(self, column, **kw)
+    if isinstance(column.type, _sa.Boolean):
+        spec = _re.sub(r"\bDEFAULT 0\b", "DEFAULT false", spec)
+        spec = _re.sub(r"\bDEFAULT 1\b", "DEFAULT true", spec)
+    return spec
+
+
+_PGDDLCompiler.get_column_specification = _pg_bool_spec
+# --- end fix ---
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
