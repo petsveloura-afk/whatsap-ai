@@ -164,6 +164,7 @@ def export(u: User = Depends(current_user), db: Session = Depends(get_db)):
             "personalization_enabled": _personalization_on(db, u)}
 @app.delete("/api/me", status_code=204)
 def delete_me(u: User = Depends(current_user), db: Session = Depends(get_db)):
+    from .routes_v3 import purge_user_data; purge_user_data(db, u.id)  # v3.1: FK-safe removal across every user-owned table
     for M in (AiEmbedding, AiMemory, UserPreference, Listing, SearchConfig):
         for x in db.scalars(select(M).where(M.user_id == u.id)): db.delete(x)
     audit(db, u, "account.deleted", u.id); db.delete(u); db.commit()
@@ -423,3 +424,7 @@ app.include_router(routes_v2.router)
 app.middleware("http")(routes_v2.maintenance)
 app.add_event_handler("startup", routes_v2.start_workers)
 app.add_event_handler("shutdown", routes_v2.stop_workers)
+from . import routes_v3
+app.include_router(routes_v3.router)
+app.middleware("http")(routes_v3.edge)
+routes_v3.install()

@@ -7,3 +7,11 @@
 - **OpenAI (optional, paid)**: `OPENAI_API_KEY` + admin toggle `llm_extraction`.
 - **pgvector (optional)**: Postgres with the extension; `USE_PGVECTOR=1` before migrating, then the admin toggle `pgvector`; query with `GET /api/memory/similar?q=`.
 - **Redis (optional)**: `REDIS_URL`; used only to wake the worker.
+
+## v3.1 source kinds (`POST /api/sources`, `kind`)
+`rss`, `jsonfeed` (as before) plus `jsonld` (schema.org Product/Offer/RealEstateListing/Vehicle... embedded in a page), `csv` (header: title,description,price,url,image[,currency]), `reddit` (a subreddit's `.../new.json`), `tgpublic` (public channel preview `https://t.me/s/<channel>`).
+All go through the same guards: SSRF check, robots.txt, 1 MB cap, 15 s timeout, 30 items per poll. There is intentionally **no scraper for sites that forbid it** (e.g. Yad2/Facebook Marketplace): use their official feeds/exports, or paste/ingest listings yourself. Check each site's terms before adding it as a source.
+
+## Public API (sell/integrate)
+Header `X-API-Key: ssk_...`. `GET /api/public/v1/listings?limit&min_score`, `POST /api/public/v1/ingest {search_id,text,url}`, `GET /api/public/v1/usage`. Quota/24h: starter 200, pro 5,000, vip 50,000, +100 per referral (cap 20).
+Webhook payload: `{"event":"listing.new","listing":{...},"sent_at":"..."}`, header `X-Sniper-Signature: t=<unix>,v1=<hex hmac-sha256 of "<t>.<body>">`.

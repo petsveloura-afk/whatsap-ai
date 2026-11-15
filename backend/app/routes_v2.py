@@ -26,7 +26,7 @@ def _now(): return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
 # ---------- Scout sources ----------
 class SrcIn(BaseModel):
     search_id: str
-    kind: str = Field(pattern="^(rss|jsonfeed)$")
+    kind: str = Field(pattern="^(rss|jsonfeed|jsonld|csv|reddit|tgpublic)$")
     url: str = Field(max_length=1000)
     interval_minutes: int = Field(30, ge=15, le=1440)
 MAX_SOURCES = 10

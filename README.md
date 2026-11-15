@@ -49,3 +49,6 @@ See `docs/DEPLOYMENT-FREE.md` (GitHub + Vercel + Render + Neon/Supabase, all fre
 - Optional, OFF by default: LLM extraction and pgvector (admin toggles, need your own paid key / extension).
 - UI: natural-language wizard, sources, notifications, memory/privacy, admin panel. Tests: `npm test` (Node), backend pytest incl. E2E.
 - See `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/INTEGRATIONS.md`.
+
+## v3.1 - growth, scale and security layer
+Public API keys, signed webhooks, referrals, share links, market intelligence ("is this a good deal?"), weekly digest, extra Scout sources (JSON-LD, CSV, Reddit, public Telegram), shared rate limiting, self-hosted error tracking, multi-instance-safe queue + standalone worker, optional Postgres RLS. See `docs/GROWTH-MONETIZATION.md`, `docs/SECURITY.md`, `docs/ARCHITECTURE.md`.

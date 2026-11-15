@@ -21,3 +21,8 @@
 
 ## מה לא נבדק
 הקבצים כאן לא נפרסו בפועל. לא הורצו Docker, Postgres, Render או Vercel.
+
+## v3.1 notes
+- Railway: the existing `backend/railway.json` still works. For a separate worker add a second service from the same repo with start command `python -m app.worker` and set `WORKER_ENABLED=0` on the API service. Railway's free trial credit is limited, check current terms.
+- GitHub: CI (`.github/workflows/ci.yml`) runs `pytest`, which now includes `tests/test_v31_pure.py` and `tests/test_v31_api.py`. New migration: `d3a4b5c6e7f8` (run automatically by the Dockerfile).
+- Nothing in v3.1 needs a new paid service or a new package (`sentry-sdk` is optional and off).

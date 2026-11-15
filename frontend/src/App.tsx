@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Wizard, SourcesPanel, MemoryPanel, Notifications, AdminPanel } from "./panels";
+import { GrowthPanel } from "./growth";
 const API: string = (import.meta as any).env.VITE_API_URL || "";
 let access = "";
 async function refresh(): Promise<boolean> {
@@ -77,6 +78,7 @@ function Dash({ user, onLogout }: any) {
       {l.risks.map((r: string) => <div className="risk" key={r}>⚠ {r}</div>)}
       {["save:שמור", "reject:דחה", "contacted:יצרתי קשר"].map(x => { const [k, v] = x.split(":"); return <button className="ghost" key={k} onClick={() => act(() => api(`/api/listings/${l.id}/${k}`, { method: "POST" }))}>{v}</button>; })}</div>)}
     <SourcesPanel api={api} searches={searches} />
+    <GrowthPanel api={api} />
     <MemoryPanel api={api} onDeleted={() => { sessionStorage.removeItem("rt"); access = ""; onLogout(); }} />
     <div className="card"><h3>מנוי</h3>{["pro:Pro 99 ₪", "vip:VIP 149 ₪"].map(x => { const [k, v] = x.split(":"); return <button key={k} onClick={() => act(async () => { const r = await api("/api/billing/checkout", { method: "POST", body: { plan: k } }); location.href = r.approve_url; })}>{v}</button>; })}<div>החיוב דרך PayPal; החשבון מופעל רק לאחר אישור שרת מאומת.</div></div>
     {isAdmin && <AdminPanel api={api} role={user.role} />}
