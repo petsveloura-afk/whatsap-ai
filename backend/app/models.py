@@ -1,5 +1,5 @@
 import uuid, datetime as dt
-from sqlalchemy import String, Integer, Float, Boolean, ForeignKey, JSON, DateTime, Text, UniqueConstraint
+from sqlalchemy import false, String, Integer, Float, Boolean, ForeignKey, JSON, DateTime, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 def _id(): return str(uuid.uuid4())
@@ -11,6 +11,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    whatsapp_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    whatsapp_consent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
 class SearchConfig(Base):
     __tablename__ = "search_configs"
@@ -61,3 +63,29 @@ class TelegramSource(Base):
     search_id: Mapped[str] = mapped_column(ForeignKey("search_configs.id"))
     code: Mapped[str] = mapped_column(String(32), unique=True)
     chat_id: Mapped[str | None] = mapped_column(String(40), index=True, nullable=True)
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+class PasswordReset(Base):
+    __tablename__ = "password_resets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), unique=True)
+    plan: Mapped[str] = mapped_column(String(20), default="starter")
+    status: Mapped[str] = mapped_column(String(20), default="none")
+    paypal_subscription_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+class PaymentEvent(Base):
+    __tablename__ = "payment_transactions"
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)

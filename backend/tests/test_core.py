@@ -67,3 +67,42 @@ def test_telegram_ws_overview_agents():
         with c.websocket_connect("/ws?token=bad") as w2: w2.receive_json()
         assert False
     except Exception: pass
+def test_refresh_reset():
+    from app import mail
+    c.post("/api/auth/register", json={"email": "r@x.com", "password": "correct-horse-1"})
+    r = c.post("/api/auth/login", json={"email": "r@x.com", "password": "correct-horse-1"}).json()
+    r2 = c.post("/api/auth/refresh", json={"refresh_token": r["refresh_token"]})
+    assert r2.status_code == 200
+    assert c.post("/api/auth/refresh", json={"refresh_token": r["refresh_token"]}).status_code == 401
+    assert c.post("/api/auth/refresh", json={"refresh_token": r2.json()["refresh_token"]}).status_code == 401
+    sent = {}; mail.send_mail = lambda to, s, b: sent.update(b=b)
+    assert c.post("/api/auth/forgot-password", json={"email": "r@x.com"}).status_code == 202
+    tk = sent["b"].split("token=")[1]
+    assert c.post("/api/auth/reset-password", json={"token": tk, "password": "new-password-123"}).status_code == 200
+    assert c.post("/api/auth/reset-password", json={"token": tk, "password": "new-password-456"}).status_code == 400
+    assert c.post("/api/auth/login", json={"email": "r@x.com", "password": "new-password-123"}).status_code == 200
+def test_billing_whatsapp_metrics():
+    from app import paypal, whatsapp
+    os.environ["SUPER_ADMIN_EMAILS"] = "root@x.com"
+    h = tok("bill@x.com"); uid = c.get("/api/auth/me", headers=h).json()["id"]
+    assert c.post("/api/billing/checkout", headers=h, json={"plan": "pro"}).status_code == 503
+    os.environ["PAYPAL_PLAN_PRO"] = "P-PRO"
+    ev = {"id": "WH-1", "event_type": "BILLING.SUBSCRIPTION.ACTIVATED", "resource": {"id": "I-1", "custom_id": uid, "plan_id": "P-PRO"}}
+    paypal.verify_webhook = lambda hd, e: False
+    assert c.post("/api/webhooks/paypal", json=ev).status_code == 400
+    assert c.get("/api/billing/subscription", headers=h).json()["plan"] == "starter"
+    paypal.verify_webhook = lambda hd, e: True
+    assert c.post("/api/webhooks/paypal", json=ev).status_code == 200
+    assert c.post("/api/webhooks/paypal", json=ev).json().get("duplicate")
+    assert c.get("/api/billing/subscription", headers=h).json()["plan"] == "pro"
+    c.post("/api/webhooks/paypal", json=dict(ev, id="WH-2", event_type="BILLING.SUBSCRIPTION.CANCELLED"))
+    assert c.get("/api/billing/subscription", headers=h).json()["plan"] == "starter"
+    os.environ.update(WHATSAPP_TOKEN="t", WHATSAPP_PHONE_ID="1")
+    got = []; whatsapp.notify = lambda to, text: got.append(to)
+    assert c.put("/api/integrations/whatsapp/consent", headers=h, json={"number": "+972501234567", "consent": True}).status_code == 200
+    sid = c.post("/api/searches", headers=h, json={"name": "w", "category": "real_estate", "location": "Holon", "max_price": 5500}).json()["id"]
+    c.post("/api/listings/ingest", headers=h, json={"search_id": sid, "text": "דירת 3 חדרים בחולון, משופצת, ללא תיווך, 5,100 ש״ח"})
+    assert got == ["972501234567"]
+    assert c.get("/api/admin/metrics", headers=h).status_code == 403
+    m = c.get("/api/admin/metrics", headers=tok("root@x.com")).json()
+    assert m["requests"] > 0

@@ -6,7 +6,8 @@ Run: `JWT_SECRET=<32+ chars> uvicorn app.main:app` → docs at /docs. Postgres n
 - [x] Auth (register/login/me, bcrypt, JWT 30 min)  - [x] Searches CRUD-lite (soft delete, pause/resume)
 - [x] Extraction (rule-based HE/EN)  - [x] Dedup (per-user fingerprint)  - [x] Risk indicators  - [x] Weighted scoring (configurable)
 - [x] Per-user isolation (tested)  - [x] Docker/compose/.env
-- [x] RBAC (user/support/admin/super_admin), admin users+audit-logs, listing actions, data export/delete, Alembic initial migration  - [ ] Refresh tokens/password reset  - [ ] Remaining ~18 tables
+- [x] RBAC (user/support/admin/super_admin), admin users+audit-logs, listing actions, data export/delete, Alembic initial migration  - [x] Refresh tokens (rotation + reuse detection), password reset (SMTP)  - [x] PayPal subscriptions (server-side checkout, verified+idempotent webhook, plan limits)  - [x] WhatsApp Cloud API notifications with consent  - [x] Request IDs, JSON logs, /api/admin/metrics, CORS allowlist  - [x] React/Vite PWA frontend (landing, auth, dashboard, live WS, admin users, billing)
+- [ ] Remaining tables (images, embeddings...)
 - [x] Pipeline agents with real telemetry (/api/agents), WebSocket events (/ws, per-user), Telegram webhook with chat-ownership linking  - [x] Railway/GitHub config + CI
 - [ ] LLM extraction, embeddings/pgvector  - [ ] Redis workers, Scout source adapters (URL feeds)
 - [ ] WhatsApp, PayPal (need credentials)  - [ ] React frontend/PWA/landing/admin UI  - [ ] Observability
@@ -19,3 +20,9 @@ Run: `JWT_SECRET=<32+ chars> uvicorn app.main:app` → docs at /docs. Postgres n
 5. Telegram: `curl "https://api.telegram.org/bot<TOKEN>/setWebhook" -d url=https://<app>/api/integrations/telegram/webhook -d secret_token=<TELEGRAM_WEBHOOK_SECRET>`
 Migrations run automatically on start. Run a single worker (WebSocket hub and agent stats are in-process; they reset on restart).
 Cost note: Railway gives trial credit, not permanent free hosting. A free alternative using the same Dockerfile: Render free web service + Supabase free Postgres (the free web service sleeps when idle).
+
+## Frontend (Vercel)
+Root Directory `frontend`, env `VITE_API_URL=https://<railway-app>`; add that Vercel URL to backend `CORS_ORIGINS` and `APP_URL`. Local: `cd frontend && npm i && npm run dev` (proxies to :8000).
+
+## Verification status
+Tested automatically (SQLite, mocked externals): auth/refresh/reset, isolation, RBAC, Telegram webhook, WebSocket, PayPal webhook logic, WhatsApp hook. **Not tested against real services**: PayPal API calls, WhatsApp Cloud API, SMTP, Telegram, Postgres, Docker.

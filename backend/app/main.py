@@ -1,10 +1,12 @@
-import asyncio, hashlib, hmac, os, secrets, time, uuid, datetime as dt
+import asyncio, json, logging, hashlib, hmac, os, secrets, time, uuid, datetime as dt
 from fastapi import FastAPI, Depends, HTTPException, Header, WebSocket, WebSocketDisconnect, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from .db import Base, engine, get_db
-from .models import User, SearchConfig, Listing, AuditLog, TelegramSource
+from .models import User, SearchConfig, Listing, AuditLog, TelegramSource, RefreshToken, PasswordReset, Subscription, PaymentEvent
+from . import mail, paypal, whatsapp
+from fastapi.middleware.cors import CORSMiddleware
 from .events import hub, STATS
 from .security import hash_pw, check_pw, make_token, read_token
 from .extract import extract
@@ -32,7 +34,7 @@ def register(c: Cred, db: Session = Depends(get_db)):
 def login(c: Cred, db: Session = Depends(get_db)):
     u = db.scalar(select(User).where(User.email == c.email.lower()))
     if not u or not check_pw(c.password, u.password_hash): raise HTTPException(401, "Invalid credentials")
-    return {"access_token": make_token(u.id), "token_type": "bearer"}
+    return _issue(db, u.id)
 @app.get("/api/auth/me")
 def me(u: User = Depends(current_user)): return {"id": u.id, "email": u.email, "role": u.role}
 class SearchIn(BaseModel):
@@ -51,6 +53,8 @@ def _own_search(db, u, sid) -> SearchConfig:
     return s
 @app.post("/api/searches", status_code=201)
 def create_search(b: SearchIn, u: User = Depends(current_user), db: Session = Depends(get_db)):
+    n = len(db.scalars(select(SearchConfig).where(SearchConfig.user_id == u.id, SearchConfig.deleted_at.is_(None))).all())
+    if n >= PLANS[_plan(db, u)]["max_searches"]: raise HTTPException(402, "Search limit reached for your plan")
     s = SearchConfig(user_id=u.id, **b.model_dump()); db.add(s); db.commit(); return {"id": s.id}
 @app.get("/api/searches")
 def list_searches(u: User = Depends(current_user), db: Session = Depends(get_db)):
@@ -175,6 +179,9 @@ def pipeline(db, u, s, text, url):
                 score=sc["score"], score_detail=sc, risks=rk, status="new" if sc["score"] >= s.min_score else "rejected")
     db.add(l); db.commit()
     hub.publish(u.id, "listing.discovered" if l.status == "new" else "listing.rejected", {"id": l.id, "score": l.score}, cid)
+    if l.status == "new" and u.whatsapp_consent and u.whatsapp_number and whatsapp.configured():
+        try: whatsapp.notify(u.whatsapp_number, f"Smart Sniper: new match {l.score}% - {ex.get('location') or ''} {ex.get('price') or ''}")
+        except Exception as e: log.warning("whatsapp failed: %s", type(e).__name__)
     return l
 @app.websocket("/ws")
 async def ws(sock: WebSocket, token: str = ""):
@@ -232,3 +239,108 @@ async def tg_webhook(req: Request, x_telegram_bot_api_secret_token: str = Header
             try: pipeline(db, u, s, text, None); n += 1
             except HTTPException: pass
     return {"processed": n}
+
+log = logging.getLogger("sniper"); logging.basicConfig(level=logging.INFO, format="%(message)s")
+METRICS = {"requests": 0, "by_status": {}, "total_ms": 0.0}
+app.add_middleware(CORSMiddleware, allow_origins=[o for o in os.environ.get("CORS_ORIGINS", "").split(",") if o], allow_methods=["*"], allow_headers=["*"])
+@app.middleware("http")
+async def obs(request: Request, call_next):
+    rid = request.headers.get("x-request-id") or str(uuid.uuid4()); t = time.perf_counter()
+    resp = await call_next(request); ms = (time.perf_counter() - t) * 1000
+    METRICS["requests"] += 1; k = str(resp.status_code); METRICS["by_status"][k] = METRICS["by_status"].get(k, 0) + 1; METRICS["total_ms"] += ms
+    resp.headers["X-Request-ID"] = rid
+    log.info(json.dumps({"rid": rid, "method": request.method, "path": request.url.path, "status": resp.status_code, "ms": round(ms, 1)}))
+    return resp
+@app.get("/api/admin/metrics")
+def metrics(a: User = Depends(need("admin", "super_admin"))):
+    return {**METRICS, "avg_ms": round(METRICS["total_ms"] / METRICS["requests"], 2) if METRICS["requests"] else None, "agents": STATS}
+def _h(x): return hashlib.sha256(x.encode()).hexdigest()
+def _now(): return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+def _issue(db, uid):
+    raw = secrets.token_urlsafe(48)
+    db.add(RefreshToken(user_id=uid, token_hash=_h(raw), expires_at=_now() + dt.timedelta(days=14))); db.commit()
+    return {"access_token": make_token(uid), "refresh_token": raw, "token_type": "bearer"}
+def _revoke_all(db, uid):
+    for x in db.scalars(select(RefreshToken).where(RefreshToken.user_id == uid)): x.revoked = True
+class RefreshIn(BaseModel): refresh_token: str
+@app.post("/api/auth/refresh")
+def refresh(b: RefreshIn, db: Session = Depends(get_db)):
+    t = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == _h(b.refresh_token)))
+    if not t: raise HTTPException(401, "Invalid refresh token")
+    if t.revoked: _revoke_all(db, t.user_id); db.commit(); raise HTTPException(401, "Token reuse detected; sessions revoked")
+    u = db.get(User, t.user_id)
+    if t.expires_at.replace(tzinfo=None) < _now() or not u or not u.is_active: raise HTTPException(401, "Expired")
+    t.revoked = True; return _issue(db, u.id)
+@app.post("/api/auth/logout", status_code=204)
+def logout(b: RefreshIn, db: Session = Depends(get_db)):
+    t = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == _h(b.refresh_token)))
+    if t: t.revoked = True; db.commit()
+class EmailIn(BaseModel): email: EmailStr
+@app.post("/api/auth/forgot-password", status_code=202)
+def forgot(b: EmailIn, db: Session = Depends(get_db)):
+    u = db.scalar(select(User).where(User.email == b.email.lower()))
+    if u:
+        raw = secrets.token_urlsafe(32)
+        db.add(PasswordReset(user_id=u.id, token_hash=_h(raw), expires_at=_now() + dt.timedelta(hours=1))); db.commit()
+        try: mail.send_mail(u.email, "Reset your Smart Sniper password", f"{os.environ.get('APP_URL', '')}/reset?token={raw}")
+        except Exception as e: log.warning("reset mail failed: %s", type(e).__name__)
+    return {"status": "If the account exists, an email was sent"}
+class ResetIn(BaseModel):
+    token: str
+    password: str = Field(min_length=10)
+@app.post("/api/auth/reset-password")
+def reset(b: ResetIn, db: Session = Depends(get_db)):
+    r = db.scalar(select(PasswordReset).where(PasswordReset.token_hash == _h(b.token)))
+    if not r or r.used or r.expires_at.replace(tzinfo=None) < _now(): raise HTTPException(400, "Invalid or expired token")
+    u = db.get(User, r.user_id); u.password_hash = hash_pw(b.password); r.used = True; _revoke_all(db, u.id); db.commit()
+    return {"ok": True}
+PLANS = {"starter": {"price": 0, "max_searches": 3}, "pro": {"price": 99, "max_searches": 15}, "vip": {"price": 149, "max_searches": 50}}
+def _sub(db, u): return db.scalar(select(Subscription).where(Subscription.user_id == u.id))
+def _plan(db, u):
+    s = _sub(db, u); return s.plan if s and s.status == "active" else "starter"
+@app.get("/api/billing/plans")
+def plans(): return [{"id": k, **v, "currency": "ILS", "available": k == "starter" or (paypal.configured() and bool(paypal.plan_ids()[k]))} for k, v in PLANS.items()]
+@app.get("/api/billing/subscription")
+def my_sub(u: User = Depends(current_user), db: Session = Depends(get_db)):
+    s = _sub(db, u); return {"plan": _plan(db, u), "status": s.status if s else "none"}
+class CheckoutIn(BaseModel): plan: str = Field(pattern="^(pro|vip)$")
+@app.post("/api/billing/checkout")
+def checkout(b: CheckoutIn, u: User = Depends(current_user), db: Session = Depends(get_db)):
+    pid = paypal.plan_ids()[b.plan]
+    if not paypal.configured() or not pid: raise HTTPException(503, "PayPal not configured")
+    if _plan(db, u) != "starter": raise HTTPException(409, "Already subscribed")
+    app_url = os.environ.get("APP_URL", "")
+    sid, href = paypal.create_subscription(pid, u.id, app_url + "/?billing=return", app_url + "/?billing=cancel")
+    s = _sub(db, u) or Subscription(user_id=u.id); s.plan, s.status, s.paypal_subscription_id = b.plan, "pending", sid; db.add(s); db.commit()
+    return {"approve_url": href}  # activation happens ONLY via verified webhook
+@app.post("/api/billing/cancel")
+def cancel(u: User = Depends(current_user), db: Session = Depends(get_db)):
+    s = _sub(db, u)
+    if not s or s.status != "active": raise HTTPException(409, "No active subscription")
+    paypal.cancel_subscription(s.paypal_subscription_id); return {"status": "cancellation requested; confirmed by webhook"}
+@app.post("/api/webhooks/paypal")
+async def pp_webhook(req: Request, db: Session = Depends(get_db)):
+    ev = await req.json()
+    if not paypal.verify_webhook({k.lower(): v for k, v in req.headers.items()}, ev): raise HTTPException(400, "Invalid signature")
+    if not ev.get("id"): raise HTTPException(400, "Missing event id")
+    if db.get(PaymentEvent, ev["id"]): return {"duplicate": True}
+    db.add(PaymentEvent(id=ev["id"])); r, t = ev.get("resource", {}), ev.get("event_type", "")
+    if t == "BILLING.SUBSCRIPTION.ACTIVATED" and r.get("custom_id") and db.get(User, r["custom_id"]):
+        plan = next((k for k, v in paypal.plan_ids().items() if v and v == r.get("plan_id")), None)
+        if plan:
+            s = db.scalar(select(Subscription).where(Subscription.user_id == r["custom_id"])) or Subscription(user_id=r["custom_id"])
+            s.plan, s.status, s.paypal_subscription_id = plan, "active", r.get("id"); db.add(s)
+    elif t.startswith("BILLING.SUBSCRIPTION."):
+        s = db.scalar(select(Subscription).where(Subscription.paypal_subscription_id == r.get("id")))
+        new = {"CANCELLED": "canceled", "SUSPENDED": "canceled", "EXPIRED": "canceled", "PAYMENT.FAILED": "past_due"}.get(t.removeprefix("BILLING.SUBSCRIPTION."))
+        if s and new: s.status = new
+    db.commit(); return {"ok": True}
+class WaIn(BaseModel):
+    number: str = Field(pattern=r"^\+?\d{8,15}$")
+    consent: bool
+@app.put("/api/integrations/whatsapp/consent")
+def wa_consent(b: WaIn, u: User = Depends(current_user), db: Session = Depends(get_db)):
+    u.whatsapp_number, u.whatsapp_consent = b.number.lstrip("+"), b.consent; db.commit(); return {"consent": b.consent}
+@app.get("/api/integrations/whatsapp/status")
+def wa_status(u: User = Depends(current_user)):
+    return {"provider": "whatsapp_cloud_api", "configured": whatsapp.configured(), "consent": bool(u.whatsapp_consent), "qr_pairing": "unsupported (unofficial; may violate WhatsApp terms)"}
