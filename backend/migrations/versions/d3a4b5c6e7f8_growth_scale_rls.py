@@ -23,6 +23,21 @@ RLS = ["search_configs", "listings", "telegram_connections", "refresh_tokens", "
        "user_listing_actions", "notification_preferences", "notifications", "api_keys", "webhook_endpoints",
        "webhook_deliveries", "referrals", "shared_links", "user_flags"]
 
+
+def _rls_tables(bind):
+    """Only tables that exist AND have a user_id column (policy depends on it)."""
+    insp = sa.inspect(bind)
+    existing = set(insp.get_table_names())
+    result = []
+    for t in RLS:
+        if t not in existing:
+            continue
+        cols = {c["name"] for c in insp.get_columns(t)}
+        if "user_id" in cols:
+            result.append(t)
+    return result
+
+
 def upgrade() -> None:
     op.create_table('api_keys', ID(), FK(), S('name', 60), S('prefix', 12), S('key_hash', 64), sa.Column('scopes', sa.JSON(), nullable=False), B('active', True), T('last_used_at', True), T(), sa.UniqueConstraint('key_hash'))
     op.create_index('ix_api_keys_user_id', 'api_keys', ['user_id']); op.create_index('ix_api_keys_prefix', 'api_keys', ['prefix'])
@@ -41,13 +56,16 @@ def upgrade() -> None:
     op.create_table('rate_hits', ID(), S('key', 200), sa.Column('at', sa.Float(), nullable=False))
     op.create_index('ix_rate_hits_key', 'rate_hits', ['key']); op.create_index('ix_rate_hits_at', 'rate_hits', ['at'])
     op.create_table('error_events', ID(), S('fingerprint', 40), S('kind', 80), S('message', 300), S('route', 200), I('count', 1), sa.Column('sample', sa.Text(), nullable=True), B('resolved'), T('first_seen'), T('last_seen'), sa.UniqueConstraint('fingerprint'))
-    if op.get_bind().dialect.name == "postgresql":
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
         from app.rls import policy_sql
-        for t in RLS:
+        for t in _rls_tables(bind):   # skip tables without user_id (e.g. payment_transactions)
             for stmt in policy_sql(t): op.execute(stmt)   # ENABLE (not FORCE): no effect for the owner role until you opt in, see docs/SECURITY.md
 
+
 def downgrade() -> None:
-    if op.get_bind().dialect.name == "postgresql":
-        for t in RLS:
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        for t in _rls_tables(bind):
             op.execute(f"DROP POLICY IF EXISTS user_isolation ON {t}"); op.execute(f"ALTER TABLE {t} DISABLE ROW LEVEL SECURITY")
     for t in ("error_events", "rate_hits", "market_observations", "user_flags", "shared_links", "referrals", "webhook_deliveries", "webhook_endpoints", "api_keys"): op.drop_table(t)
