@@ -52,3 +52,8 @@ See `docs/DEPLOYMENT-FREE.md` (GitHub + Vercel + Render + Neon/Supabase, all fre
 
 ## v3.1 - growth, scale and security layer
 Public API keys, signed webhooks, referrals, share links, market intelligence ("is this a good deal?"), weekly digest, extra Scout sources (JSON-LD, CSV, Reddit, public Telegram), shared rate limiting, self-hosted error tracking, multi-instance-safe queue + standalone worker, optional Postgres RLS. See `docs/GROWTH-MONETIZATION.md`, `docs/SECURITY.md`, `docs/ARCHITECTURE.md`.
+
+## Railway notes
+- `DATABASE_URL` must use the `postgresql+psycopg://` prefix.
+- Alembic migrations were written for SQLite; `backend/migrations/env.py` converts Boolean `DEFAULT 0/1` to `false/true` when running on Postgres.
+- After pushing a fix, make sure the new Railway deployment shows the latest commit (use a new commit, not Redeploy of an old one).
