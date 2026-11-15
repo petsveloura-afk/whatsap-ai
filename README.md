@@ -35,3 +35,9 @@ See `docs/DEPLOYMENT-FREE.md` (GitHub + Vercel + Render + Neon/Supabase, all fre
 - `POST /api/searches/parse` - natural-language search creation (rule-based, free).
 - Near-duplicate detection (local trigram embeddings, no API).
 - Login rate limiting (in-memory).
+
+## Personal memory (free, local)
+- Saving/rejecting a listing stores a per-user memory (local trigram embedding, no external AI).
+- Future scores shift by at most +/-10 points, with the reason shown in `score_detail.personalization`.
+- Controls: `GET /api/memory`, `PUT /api/memory/preferences`, `DELETE /api/memory`, `DELETE /api/memory/{id}`; included in `GET /api/me/export` and removed by `DELETE /api/me`.
+- New Alembic revision `a7c1d2e3f4b5` (not yet executed - run `alembic upgrade head`).

@@ -21,3 +21,12 @@ def test_near_duplicate():
 def test_rate_limit():
     l = Limiter()
     assert all(l.allow("k", 3, 60) for _ in range(3)) and not l.allow("k", 3, 60) and l.allow("other", 3, 60)
+
+def test_personalization_bounded_and_explained():
+    from app.memory import adjustment, MAX_ADJ
+    from app.neardup import embed
+    t = "דירת 3 חדרים בחולון משופצת"
+    up = adjustment(t, [embed(t)], [])
+    down = adjustment(t, [], [embed(t)])
+    assert 0 < up["points"] <= MAX_ADJ and -MAX_ADJ <= down["points"] < 0
+    assert adjustment(t, [], [])["points"] == 0

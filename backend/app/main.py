@@ -4,7 +4,7 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from .db import Base, engine, get_db
-from .models import User, SearchConfig, Listing, AuditLog, TelegramSource, RefreshToken, PasswordReset, Subscription, PaymentEvent
+from .models import UserPreference, AiMemory, User, SearchConfig, Listing, AuditLog, TelegramSource, RefreshToken, PasswordReset, Subscription, PaymentEvent
 from . import mail, paypal, whatsapp
 from fastapi.middleware.cors import CORSMiddleware
 from .events import hub, STATS
@@ -12,7 +12,8 @@ from .security import hash_pw, check_pw, make_token, read_token
 from .extract import extract
 from .scoring import score, risks
 from .nlsearch import parse_search
-from .neardup import is_near_duplicate
+from .neardup import is_near_duplicate, embed
+from .memory import adjustment, MAX_MEMORIES
 from .ratelimit import limiter
 app = FastAPI(title="Smart Sniper AI", version="3.0.0-core")
 if os.environ.get("AUTO_CREATE_TABLES") == "1": Base.metadata.create_all(engine)  # dev/tests only; production uses Alembic
@@ -94,6 +95,13 @@ def listings(u: User = Depends(current_user), db: Session = Depends(get_db)):
     rows = db.scalars(select(Listing).where(Listing.user_id == u.id).order_by(Listing.score.desc())).all()
     return [{"id": l.id, "score": l.score, "status": l.status, "extracted": l.extracted, "risks": l.risks} for l in rows]
 
+def _personalization_on(db, u):
+    p = db.scalar(select(UserPreference).where(UserPreference.user_id == u.id)); return p.personalization_enabled if p else True
+def _remember(db, u, kind, text):
+    if not _personalization_on(db, u): return
+    db.add(AiMemory(user_id=u.id, kind=kind, text=text[:2000], embedding=embed(text)))
+    old = db.scalars(select(AiMemory).where(AiMemory.user_id == u.id).order_by(AiMemory.created_at.desc()).offset(MAX_MEMORIES)).all()
+    for o in old: db.delete(o)
 def audit(db, actor, action, target=None, detail=None):
     db.add(AuditLog(actor_id=actor.id if actor else None, action=action, target=target, detail=detail))
 def need(*roles):
@@ -125,7 +133,9 @@ def _own_listing(db, u, lid) -> Listing:
     return l
 def _set_status(status):
     def h(lid: str, u: User = Depends(current_user), db: Session = Depends(get_db)):
-        l = _own_listing(db, u, lid); l.status = status; db.commit(); return {"id": l.id, "status": status}
+        l = _own_listing(db, u, lid); l.status = status
+        if status in ("saved", "rejected"): _remember(db, u, status, l.raw_text)
+        db.commit(); return {"id": l.id, "status": status}
     return h
 for _n, _s in (("save", "saved"), ("reject", "rejected"), ("contacted", "contacted"), ("purchased", "purchased")):
     app.post(f"/api/listings/{{lid}}/{_n}")(_set_status(_s))
@@ -143,10 +153,12 @@ def export(u: User = Depends(current_user), db: Session = Depends(get_db)):
     cols = lambda o: {c.name: str(getattr(o, c.name)) if isinstance(getattr(o, c.name), dt.datetime) else getattr(o, c.name) for c in o.__table__.columns}
     return {"user": {"id": u.id, "email": u.email, "role": u.role},
             "searches": [cols(x) for x in db.scalars(select(SearchConfig).where(SearchConfig.user_id == u.id))],
-            "listings": [cols(x) for x in db.scalars(select(Listing).where(Listing.user_id == u.id))]}
+            "listings": [cols(x) for x in db.scalars(select(Listing).where(Listing.user_id == u.id))],
+            "memory": [{"id": m.id, "kind": m.kind, "text": m.text, "at": str(m.created_at)} for m in db.scalars(select(AiMemory).where(AiMemory.user_id == u.id))],
+            "personalization_enabled": _personalization_on(db, u)}
 @app.delete("/api/me", status_code=204)
 def delete_me(u: User = Depends(current_user), db: Session = Depends(get_db)):
-    for M in (Listing, SearchConfig):
+    for M in (AiMemory, UserPreference, Listing, SearchConfig):
         for x in db.scalars(select(M).where(M.user_id == u.id)): db.delete(x)
     audit(db, u, "account.deleted", u.id); db.delete(u); db.commit()
 @app.get("/api/admin/users")
@@ -184,8 +196,13 @@ def pipeline(db, u, s, text, url):
     recent = [x.raw_text for x in db.scalars(select(Listing).where(Listing.user_id == u.id, Listing.search_id == s.id).order_by(Listing.created_at.desc()).limit(200))]
     if is_near_duplicate(text, recent): raise HTTPException(409, "Near-duplicate listing")
     ex = _timed("nlp_extraction", extract, text)
+    pers = None
     rk = _timed("filter_antispam", risks, ex, s)
     sc = _timed("matching", score, ex, s, text)
+    if _personalization_on(db, u) and not sc["rejection_reasons"]:
+        mem = db.scalars(select(AiMemory).where(AiMemory.user_id == u.id)).all()
+        pers = adjustment(text, [m.embedding for m in mem if m.kind == "saved"], [m.embedding for m in mem if m.kind == "rejected"])
+        sc["score"] = max(0, min(100, sc["score"] + pers["points"])); sc["personalization"] = pers
     l = Listing(user_id=u.id, search_id=s.id, raw_text=text, source_url=url, fingerprint=fp, extracted=ex,
                 score=sc["score"], score_detail=sc, risks=rk, status="new" if sc["score"] >= s.min_score else "rejected")
     db.add(l); db.commit()
@@ -355,3 +372,22 @@ def wa_consent(b: WaIn, u: User = Depends(current_user), db: Session = Depends(g
 @app.get("/api/integrations/whatsapp/status")
 def wa_status(u: User = Depends(current_user)):
     return {"provider": "whatsapp_cloud_api", "configured": whatsapp.configured(), "consent": bool(u.whatsapp_consent), "qr_pairing": "unsupported (unofficial; may violate WhatsApp terms)"}
+
+@app.get("/api/memory")
+def memory_list(u: User = Depends(current_user), db: Session = Depends(get_db)):
+    rows = db.scalars(select(AiMemory).where(AiMemory.user_id == u.id).order_by(AiMemory.created_at.desc())).all()
+    return {"personalization_enabled": _personalization_on(db, u), "items": [{"id": m.id, "kind": m.kind, "text": m.text[:200], "at": str(m.created_at)} for m in rows]}
+class PrefIn(BaseModel): personalization_enabled: bool
+@app.put("/api/memory/preferences")
+def memory_pref(b: PrefIn, u: User = Depends(current_user), db: Session = Depends(get_db)):
+    p = db.scalar(select(UserPreference).where(UserPreference.user_id == u.id)) or UserPreference(user_id=u.id)
+    p.personalization_enabled = b.personalization_enabled; db.add(p); db.commit(); return {"personalization_enabled": p.personalization_enabled}
+@app.delete("/api/memory", status_code=204)
+def memory_clear(u: User = Depends(current_user), db: Session = Depends(get_db)):
+    for m in db.scalars(select(AiMemory).where(AiMemory.user_id == u.id)): db.delete(m)
+    db.commit()
+@app.delete("/api/memory/{mid}", status_code=204)
+def memory_del(mid: str, u: User = Depends(current_user), db: Session = Depends(get_db)):
+    m = db.get(AiMemory, mid)
+    if not m or m.user_id != u.id: raise HTTPException(404, "Memory item not found")
+    db.delete(m); db.commit()

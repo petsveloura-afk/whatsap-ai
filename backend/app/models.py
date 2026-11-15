@@ -1,5 +1,5 @@
 import uuid, datetime as dt
-from sqlalchemy import false, String, Integer, Float, Boolean, ForeignKey, JSON, DateTime, Text, UniqueConstraint
+from sqlalchemy import false, true, String, Integer, Float, Boolean, ForeignKey, JSON, DateTime, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 def _id(): return str(uuid.uuid4())
@@ -88,4 +88,20 @@ class Subscription(Base):
 class PaymentEvent(Base):
     __tablename__ = "payment_transactions"
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+class UserPreference(Base):
+    __tablename__ = "user_preferences"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), unique=True)
+    personalization_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+
+class AiMemory(Base):
+    """Per-user memory. Always queried with user_id filter - never shared across users."""
+    __tablename__ = "ai_memory"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # saved | rejected
+    text: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list] = mapped_column(JSON)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
