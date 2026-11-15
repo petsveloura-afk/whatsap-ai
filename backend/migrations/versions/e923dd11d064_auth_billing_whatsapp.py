@@ -59,7 +59,7 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_subscriptions_paypal_subscription_id'), 'subscriptions', ['paypal_subscription_id'], unique=False)
     op.add_column('users', sa.Column('whatsapp_number', sa.String(length=20), nullable=True))
-    op.add_column('users', sa.Column('whatsapp_consent', sa.Boolean(), server_default=sa.text('0'), nullable=False))
+    op.add_column('users', sa.Column('whatsapp_consent', sa.Boolean(), server_default=sa.false(), nullable=False))
     # ### end Alembic commands ###
 
 
