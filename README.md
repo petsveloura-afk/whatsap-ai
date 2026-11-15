@@ -41,3 +41,11 @@ See `docs/DEPLOYMENT-FREE.md` (GitHub + Vercel + Render + Neon/Supabase, all fre
 - Future scores shift by at most +/-10 points, with the reason shown in `score_detail.personalization`.
 - Controls: `GET /api/memory`, `PUT /api/memory/preferences`, `DELETE /api/memory`, `DELETE /api/memory/{id}`; included in `GET /api/me/export` and removed by `DELETE /api/me`.
 - New Alembic revision `a7c1d2e3f4b5` (not yet executed - run `alembic upgrade head`).
+
+## Round 4: Scout, worker, admin center, optional paid toggles
+- Sources: `/api/sources` (RSS/Atom, JSON Feed) polled by an in-process worker (`WORKER_ENABLED=1`); queue in the DB (retry, dead-letter), optional Redis wake-up.
+- 20 additional tables (`b1e2f3a4c5d6`) + optional pgvector revision (`c2f3a4b5d6e7`, no-op unless Postgres and `USE_PGVECTOR=1`).
+- Admin: `/api/admin/overview|jobs|sources|actions|roles|system-settings`, `/api/agents/events`; maintenance mode and feature flags.
+- Optional, OFF by default: LLM extraction and pgvector (admin toggles, need your own paid key / extension).
+- UI: natural-language wizard, sources, notifications, memory/privacy, admin panel. Tests: `npm test` (Node), backend pytest incl. E2E.
+- See `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/INTEGRATIONS.md`.

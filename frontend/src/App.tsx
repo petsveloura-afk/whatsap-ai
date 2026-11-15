@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { Wizard, SourcesPanel, MemoryPanel, Notifications, AdminPanel } from "./panels";
 const API: string = (import.meta as any).env.VITE_API_URL || "";
 let access = "";
 async function refresh(): Promise<boolean> {
@@ -66,6 +67,8 @@ function Dash({ user, onLogout }: any) {
     <div className="err">{msg}</div>
     <div className="grid">{[["סה״כ הזדמנויות", ov.total_listings], ["התאמות גבוהות", ov.high_quality], ["סוננו", ov.filtered_out], ["חיפושים פעילים", ov.active_searches]].map(([k, v]: any) => <div className="card" key={k}>{k}<div className="score">{v ?? "-"}</div></div>)}</div>
     <div className="card"><h3>סוכנים (טלמטריה חיה)</h3><table><tbody>{agents.map(a => <tr key={a.name}><td>{a.name}</td><td>{a.status}</td><td>{a.processed} רשומות</td><td>{a.errors} שגיאות</td><td>{a.avg_ms ?? "-"}ms</td></tr>)}</tbody></table></div>
+    <Notifications api={api} />
+    <Wizard api={api} onCreated={load} />
     <div className="card"><h3>חיפוש חדש</h3><input placeholder="שם" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /><select value={f.category} onChange={e => setF({ ...f, category: e.target.value })}><option value="real_estate">נדל״ן</option><option value="vehicles">רכב</option><option value="electronics">אלקטרוניקה</option></select>
       <input placeholder="מיקום" value={f.location} onChange={e => setF({ ...f, location: e.target.value })} /><input placeholder="מחיר מקסימלי" value={f.max_price} onChange={e => setF({ ...f, max_price: e.target.value })} /><button onClick={create}>צור</button>
       {searches.map(s => <div key={s.id}>{s.name} ({s.active ? "פעיל" : "מושהה"}) <button className="ghost" onClick={() => act(() => api(`/api/searches/${s.id}/${s.active ? "pause" : "resume"}`, { method: "POST" }))}>{s.active ? "השהה" : "המשך"}</button> <button className="ghost" onClick={() => act(() => api(`/api/searches/${s.id}`, { method: "DELETE" }))}>מחק</button></div>)}</div>
@@ -73,7 +76,10 @@ function Dash({ user, onLogout }: any) {
     <h3>הזדמנויות</h3>{listings.map(l => <div className="card" key={l.id}><span className="score">{l.score}%</span> {l.extracted.location || "?"} · {l.extracted.rooms ?? "?"} חד׳ · {l.extracted.price ?? "?"} {l.extracted.currency || ""} · {l.status}
       {l.risks.map((r: string) => <div className="risk" key={r}>⚠ {r}</div>)}
       {["save:שמור", "reject:דחה", "contacted:יצרתי קשר"].map(x => { const [k, v] = x.split(":"); return <button className="ghost" key={k} onClick={() => act(() => api(`/api/listings/${l.id}/${k}`, { method: "POST" }))}>{v}</button>; })}</div>)}
+    <SourcesPanel api={api} searches={searches} />
+    <MemoryPanel api={api} onDeleted={() => { sessionStorage.removeItem("rt"); access = ""; onLogout(); }} />
     <div className="card"><h3>מנוי</h3>{["pro:Pro 99 ₪", "vip:VIP 149 ₪"].map(x => { const [k, v] = x.split(":"); return <button key={k} onClick={() => act(async () => { const r = await api("/api/billing/checkout", { method: "POST", body: { plan: k } }); location.href = r.approve_url; })}>{v}</button>; })}<div>החיוב דרך PayPal; החשבון מופעל רק לאחר אישור שרת מאומת.</div></div>
+    {isAdmin && <AdminPanel api={api} role={user.role} />}
     {isAdmin && <div className="card"><h3>ניהול משתמשים</h3><table><tbody>{users.map(u => <tr key={u.id}><td>{u.email}</td><td>{u.role}</td><td>{u.is_active ? "פעיל" : "מושבת"}</td><td><button className="ghost" onClick={() => act(() => api(`/api/admin/users/${u.id}`, { method: "PATCH", body: { is_active: !u.is_active } }))}>{u.is_active ? "השבת" : "הפעל"}</button></td></tr>)}</tbody></table></div>}
     <div className="card">התקנה כאפליקציה: ב-Android/Chrome תפריט ← "התקן אפליקציה". ב-iPhone: שיתוף ← "הוסף למסך הבית".</div></div>;
 }

@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from .db import Base, engine, get_db
 from .models import UserPreference, AiMemory, User, SearchConfig, Listing, AuditLog, TelegramSource, RefreshToken, PasswordReset, Subscription, PaymentEvent
-from . import mail, paypal, whatsapp
+from . import mail, paypal, whatsapp, llm, flags, pgvec
+from .models2 import ListingScore, ListingDeduplication, UserListingAction, Notification, NotificationPreference, AiEmbedding, IngestionEvent
 from fastapi.middleware.cors import CORSMiddleware
 from .events import hub, STATS
 from .security import hash_pw, check_pw, make_token, read_token
@@ -99,7 +100,11 @@ def _personalization_on(db, u):
     p = db.scalar(select(UserPreference).where(UserPreference.user_id == u.id)); return p.personalization_enabled if p else True
 def _remember(db, u, kind, text):
     if not _personalization_on(db, u): return
-    db.add(AiMemory(user_id=u.id, kind=kind, text=text[:2000], embedding=embed(text)))
+    mem = AiMemory(user_id=u.id, kind=kind, text=text[:2000], embedding=embed(text)); db.add(mem); db.flush()
+    if pgvec.enabled(db, flags.load(db)["pgvector"]):
+        try:
+            with db.begin_nested(): pgvec.store(db, u.id, mem.id, mem.embedding)
+        except Exception as e: log.warning("pgvector store failed: %s", type(e).__name__)
     old = db.scalars(select(AiMemory).where(AiMemory.user_id == u.id).order_by(AiMemory.created_at.desc()).offset(MAX_MEMORIES)).all()
     for o in old: db.delete(o)
 def audit(db, actor, action, target=None, detail=None):
@@ -134,6 +139,7 @@ def _own_listing(db, u, lid) -> Listing:
 def _set_status(status):
     def h(lid: str, u: User = Depends(current_user), db: Session = Depends(get_db)):
         l = _own_listing(db, u, lid); l.status = status
+        db.add(UserListingAction(user_id=u.id, listing_id=l.id, action=status))
         if status in ("saved", "rejected"): _remember(db, u, status, l.raw_text)
         db.commit(); return {"id": l.id, "status": status}
     return h
@@ -158,7 +164,7 @@ def export(u: User = Depends(current_user), db: Session = Depends(get_db)):
             "personalization_enabled": _personalization_on(db, u)}
 @app.delete("/api/me", status_code=204)
 def delete_me(u: User = Depends(current_user), db: Session = Depends(get_db)):
-    for M in (AiMemory, UserPreference, Listing, SearchConfig):
+    for M in (AiEmbedding, AiMemory, UserPreference, Listing, SearchConfig):
         for x in db.scalars(select(M).where(M.user_id == u.id)): db.delete(x)
     audit(db, u, "account.deleted", u.id); db.delete(u); db.commit()
 @app.get("/api/admin/users")
@@ -181,6 +187,11 @@ def admin_audit(a: User = Depends(need("admin", "super_admin")), db: Session = D
     rows = db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(200))
     return [{"actor": r.actor_id, "action": r.action, "target": r.target, "detail": r.detail, "at": str(r.created_at)} for r in rows]
 
+def _extract(db, text):
+    """Rule-based always; optional LLM fill-in only if env key is set AND the admin flag is on."""
+    ex = extract(text)
+    if llm.configured() and flags.load(db)["llm_extraction"]: ex = llm.enhance(text, ex)
+    return ex
 def _timed(name, fn, *a):
     st = STATS[name]; t = time.perf_counter()
     try: return fn(*a)
@@ -192,10 +203,13 @@ def pipeline(db, u, s, text, url):
     cid = str(uuid.uuid4())
     fp = hashlib.sha256(" ".join(text.lower().split()).encode()).hexdigest()
     if db.scalar(select(Listing).where(Listing.user_id == u.id, Listing.fingerprint == fp)):
+        db.add(ListingDeduplication(user_id=u.id, search_id=s.id, kind="exact", similarity=1.0)); db.commit()
         raise HTTPException(409, "Duplicate listing")
     recent = [x.raw_text for x in db.scalars(select(Listing).where(Listing.user_id == u.id, Listing.search_id == s.id).order_by(Listing.created_at.desc()).limit(200))]
-    if is_near_duplicate(text, recent): raise HTTPException(409, "Near-duplicate listing")
-    ex = _timed("nlp_extraction", extract, text)
+    if is_near_duplicate(text, recent):
+        db.add(ListingDeduplication(user_id=u.id, search_id=s.id, kind="near")); db.commit()
+        raise HTTPException(409, "Near-duplicate listing")
+    ex = _timed("nlp_extraction", _extract, db, text)
     pers = None
     rk = _timed("filter_antispam", risks, ex, s)
     sc = _timed("matching", score, ex, s, text)
@@ -206,6 +220,11 @@ def pipeline(db, u, s, text, url):
     l = Listing(user_id=u.id, search_id=s.id, raw_text=text, source_url=url, fingerprint=fp, extracted=ex,
                 score=sc["score"], score_detail=sc, risks=rk, status="new" if sc["score"] >= s.min_score else "rejected")
     db.add(l); db.commit()
+    db.add(ListingScore(listing_id=l.id, score=l.score, detail=sc))
+    np_ = db.scalar(select(NotificationPreference).where(NotificationPreference.user_id == u.id))
+    if l.status == "new" and (np_.in_app if np_ else True) and l.score >= (np_.min_score if np_ else 60):
+        db.add(Notification(user_id=u.id, title=f"התאמה חדשה {l.score}%", body=f"{ex.get('location') or ''} {ex.get('price') or ''}".strip(), listing_id=l.id))
+    db.commit()
     hub.publish(u.id, "listing.discovered" if l.status == "new" else "listing.rejected", {"id": l.id, "score": l.score}, cid)
     if l.status == "new" and u.whatsapp_consent and u.whatsapp_number and whatsapp.configured():
         try: whatsapp.notify(u.whatsapp_number, f"Smart Sniper: new match {l.score}% - {ex.get('location') or ''} {ex.get('price') or ''}")
@@ -264,8 +283,8 @@ async def tg_webhook(req: Request, x_telegram_bot_api_secret_token: str = Header
     for src in db.scalars(select(TelegramSource).where(TelegramSource.chat_id == chat)):
         s, u = db.get(SearchConfig, src.search_id), db.get(User, src.user_id)
         if s and not s.deleted_at and s.active and u and u.is_active:
-            try: pipeline(db, u, s, text, None); n += 1
-            except HTTPException: pass
+            try: pipeline(db, u, s, text, None); n += 1; db.add(IngestionEvent(user_id=u.id, source_id=src.id, channel="telegram", status="ok")); db.commit()
+            except HTTPException as e: db.add(IngestionEvent(user_id=u.id, source_id=src.id, channel="telegram", status="duplicate" if e.status_code == 409 else "error")); db.commit()
     return {"processed": n}
 
 log = logging.getLogger("sniper"); logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -384,10 +403,23 @@ def memory_pref(b: PrefIn, u: User = Depends(current_user), db: Session = Depend
     p.personalization_enabled = b.personalization_enabled; db.add(p); db.commit(); return {"personalization_enabled": p.personalization_enabled}
 @app.delete("/api/memory", status_code=204)
 def memory_clear(u: User = Depends(current_user), db: Session = Depends(get_db)):
-    for m in db.scalars(select(AiMemory).where(AiMemory.user_id == u.id)): db.delete(m)
+    for M_ in (AiEmbedding, AiMemory):
+        for m in db.scalars(select(M_).where(M_.user_id == u.id)): db.delete(m)
     db.commit()
 @app.delete("/api/memory/{mid}", status_code=204)
 def memory_del(mid: str, u: User = Depends(current_user), db: Session = Depends(get_db)):
     m = db.get(AiMemory, mid)
     if not m or m.user_id != u.id: raise HTTPException(404, "Memory item not found")
+    for e in db.scalars(select(AiEmbedding).where(AiEmbedding.memory_id == mid, AiEmbedding.user_id == u.id)): db.delete(e)
     db.delete(m); db.commit()
+@app.get("/api/memory/similar")
+def memory_similar(q: str, u: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Optional pgvector similarity (503 unless USE_PGVECTOR=1, Postgres, and the admin flag are all on)."""
+    if not pgvec.enabled(db, flags.load(db)["pgvector"]): raise HTTPException(503, "pgvector is not enabled")
+    return pgvec.similar(db, u.id, embed(q), 5)
+
+from . import routes_v2
+app.include_router(routes_v2.router)
+app.middleware("http")(routes_v2.maintenance)
+app.add_event_handler("startup", routes_v2.start_workers)
+app.add_event_handler("shutdown", routes_v2.stop_workers)
