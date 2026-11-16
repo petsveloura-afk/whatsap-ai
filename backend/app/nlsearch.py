@@ -16,12 +16,45 @@ _CATS = {
 }
 _FEAT_KW = {"parking": "חניה", "elevator": "מעלית", "balcony": "מרפסת", "safe_room": "ממד", "storage": "מחסן", "ac": "מזגן", "garden": "גינה", "furnished": "מרוהטת"}
 
+# ---- Hebrew number words ("חמש אלף" -> 5000, "עשרים וחמש אלף" -> 25000, "מאה אלף" -> 100000) ----
+_UNITS = {"אחד": 1, "אחת": 1, "שניים": 2, "שתיים": 2, "שני": 2, "שתי": 2, "שלוש": 3, "שלושה": 3, "ארבע": 4, "ארבעה": 4, "חמש": 5, "חמישה": 5,
+          "שש": 6, "שישה": 6, "שבע": 7, "שבעה": 7, "שמונה": 8, "תשע": 9, "תשעה": 9, "עשר": 10, "עשרה": 10, "עשרים": 20, "שלושים": 30,
+          "ארבעים": 40, "חמישים": 50, "שישים": 60, "שבעים": 70, "שמונים": 80, "תשעים": 90, "מאה": 100, "מאתיים": 200, "מאות": 100}
+_NW = "|".join(sorted(_UNITS, key=len, reverse=True))
+_PHRASE = re.compile(r"(?<![א-ת])((?:ו?(?:" + _NW + r")\s+)+)(אלפים|אלף|מיליון|מליון)(?![א-ת])")
+def _num_value(words: str) -> int | None:
+    total = 0; prev = 0; seen = False
+    for w in words.split():
+        w = w[1:] if w.startswith("ו") and w not in _UNITS and w[1:] in _UNITS else w
+        v = _UNITS.get(w)
+        if v is None: return None
+        seen = True
+        if w == "מאות": total += (prev or 1) * 100 - prev; prev = 0; continue
+        total += v; prev = v
+    return total if seen else None
+def words_to_digits(t: str) -> str:
+    """Rewrites spelled-out Hebrew amounts that precede אלף/מיליון so the numeric regexes can read them. Room counts
+    ('שלוש חדרים') are untouched because they are not followed by a multiplier word."""
+    def rep(m):
+        n = _num_value(m.group(1))
+        return f"{n} {m.group(2)} " if n else m.group(0)
+    t = _PHRASE.sub(rep, t)
+    def thousand_plus(m):
+        n = _num_value(m.group(1).lstrip("ו"))
+        return f"{1000 + n} " if n else m.group(0)
+    t = re.sub(r"(?<![א-ת])אלף\s+ו((?:(?:" + _NW + r")\s*)+)(?![א-ת])", thousand_plus, t)   # "אלף וחמש מאות" -> 1500
+    t = re.sub(r"(?<![א-ת])אלפיים(?![א-ת])", "2000", t)
+    t = re.sub(r"(?<![א-ת])(?:עד|מתחת ל|פחות מ|עד|תקציב(?: של)?)\s+אלף(?![א-ת])", lambda m: m.group(0).replace("אלף", "1000"), t)
+    return t
+# a lone amount with an explicit unit ("5 אלף", "5,200 ש\"ח") means the budget when no cue word such as "עד" was typed
+_LONE = re.compile(r"(?<![\d,\.])" + _N + r"\s*(?:(" + _MULTW + r")\b\s*(" + _CURW + r")?|(" + _CURW + r"))(?![א-תa-z])")
+
 def _val(num, mult, cur):
     v = parse_number(num) * _MULT.get((mult or "").lower(), 1)
     return v if (cur or mult or v >= 300) else None     # a bare small number is rooms/floor, not a price
 
 def parse_search(text: str) -> dict:
-    t = text.strip(); tl = _norm(t)
+    t = text.strip(); tl = _norm(words_to_digits(t))
     p = {"name": None, "category": None, "location": None, "locations": [], "min_price": None,
          "max_price": None, "required_keywords": [], "excluded_keywords": [], "min_score": 60}
     p["locations"] = find_cities(t)
@@ -36,6 +69,10 @@ def parse_search(text: str) -> dict:
     if p["min_price"] is None:
         m = _MIN.search(tl)
         if m: p["min_price"] = _val(m.group(1), m.group(2), m.group(3))
+    if p["max_price"] is None and p["min_price"] is None:
+        for m in _LONE.finditer(tl):
+            v = _val(m.group(1), m.group(2), m.group(3) or m.group(4))
+            if v: p["max_price"] = v; break
     ex = extract(t)
     p["category"] = detect_category(t) or ex.get("category")
     if not p["category"]:

@@ -87,7 +87,7 @@ def test_feed_suggestions_and_query():
     from app.feeds import suggest, build_query
     p = {"category": "real_estate", "location": "Holon", "name": "x", "required_keywords": ["3", "חניה"]}
     assert build_query(p).startswith("דירה חולון")
-    s = suggest(p); assert any(x["kind"] == "rss" and "news.google.com" in x["url"] for x in s)
+    s = suggest(p); assert any(x["kind"] == "rss" and "bing.com" in x["url"] for x in s)
     assert all(x["kind"] in ("rss", "jsonfeed", "jsonld", "csv", "reddit", "tgpublic") for x in s)
     assert [x for x in s if x.get("needs_input")] and all("url" in x for x in s if not x.get("needs_input"))
 

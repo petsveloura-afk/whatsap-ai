@@ -25,3 +25,28 @@ def test_query_intent_and_noise_sources():
 def test_news_host_helper():
     from app.relevance import is_news_host
     assert is_news_host("http://www.bing.com/news/apiclick.aspx?url=https%3a%2f%2fwww.globes.co.il%2fa") and not is_news_host("https://www.yad2.co.il/item/1")
+
+
+def test_suggest_skips_sources_that_block_bots():
+    from app.feeds import suggest
+    ids = {x["id"] for x in suggest({"category": "real_estate", "location": "Holon"})}
+    assert "gnews" not in ids and "reddit" not in ids and "bing" in ids
+
+
+def test_hebrew_number_words_and_lone_budget():
+    from app.nlsearch import parse_search
+    f = lambda t: parse_search(t)["params"]["max_price"]
+    assert f("תחפש דירת 3 חדרים עד חמש אלף שקל בחולון 5 אלף") == 5000
+    assert f("דירת 3 חדרים בחולון 5 אלף") == 5000
+    assert f("דירה בחולון עד עשרים וחמש אלף") == 25000
+    assert f("רכב עד מאה אלף שקל") == 100000
+    assert f("דירה בחולון עד אלף וחמש מאות ש\"ח") == 1500
+    assert f("דירת שלוש חדרים בחולון") is None          # room count is not a budget
+    assert parse_search("דירת שלוש חדרים בחולון")["params"]["required_keywords"] == ["3"]
+
+
+def test_admin_has_no_search_cap_but_user_does():
+    from app import main as M
+    class U:  # minimal stand-in; plan lookup is bypassed for admins
+        def __init__(s, role): s.role = role; s.id = "x"
+    assert M.search_cap(None, U("super_admin")) > 1000 and M.search_cap(None, U("admin")) > 1000

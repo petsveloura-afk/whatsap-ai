@@ -1,6 +1,6 @@
 """Source discovery (free, pure). Builds ready-to-add Scout feed URLs from a search, using only public machine-readable
 endpoints. Everything still goes through the Scout guards (SSRF check, robots.txt, size/time limits): a feed that
-disallows bots is simply marked ERROR in the UI. Honest scope: these are discovery feeds (news/discussions), not
+disallows bots is simply marked ERROR in the UI, so Google News and Reddit search (both disallow bots) are NOT suggested. Honest scope: these are discovery feeds (news/discussions), not
 scrapers of marketplaces that forbid scraping. For classified sites, use the owner-published feeds/pages you have access to."""
 import re, urllib.parse
 from .extract import _CITY_SRC
@@ -37,10 +37,7 @@ def suggest(params: dict) -> list[dict]:
     q = urllib.parse.quote_plus(build_query(params))
     if not q: return []
     return [
-        {"id": "gnews", "kind": "rss", "label": "Google News (עברית, ישראל)", "url": f"https://news.google.com/rss/search?q={q}&hl=he&gl=IL&ceid=IL:he",
-         "noise": True, "note": "חדשות, לא מודעות. לא יתווסף אוטומטית; מתאים רק למעקב אחרי כתבות."},
         {"id": "bing", "kind": "rss", "label": "Bing News RSS", "url": f"https://www.bing.com/news/search?q={q}&format=rss", "noise": True, "note": "חדשות, לא מודעות. לא יתווסף אוטומטית."},
-        {"id": "reddit", "kind": "reddit", "label": "Reddit - חיפוש עדכני", "url": f"https://www.reddit.com/search.json?q={q}&sort=new&limit=50", "noise": True, "note": "דיונים ציבוריים, לא מודעות. לא יתווסף אוטומטית."},
         {"id": "tgpublic", "kind": "tgpublic", "label": "ערוץ טלגרם ציבורי", "url_template": "https://t.me/s/<שם_הערוץ>", "needs_input": True, "note": "הדבק כתובת ערוץ ציבורי לפי https://t.me/s/ + שם הערוץ."},
         {"id": "feed", "kind": "rss", "label": "RSS / JSON Feed של אתר שמפרסם פידים", "url_template": "https://<האתר>/feed", "needs_input": True, "note": "כל אתר שמפרסם RSS/Atom/JSON Feed או נתוני schema.org (kind=jsonld) כחוק."},
     ]

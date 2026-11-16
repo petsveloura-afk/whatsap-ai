@@ -62,7 +62,8 @@ def _own_search(db, u, sid) -> SearchConfig:
 @app.post("/api/searches", status_code=201)
 def create_search(b: SearchIn, u: User = Depends(current_user), db: Session = Depends(get_db)):
     n = len(db.scalars(select(SearchConfig).where(SearchConfig.user_id == u.id, SearchConfig.deleted_at.is_(None))).all())
-    if n >= PLANS[_plan(db, u)]["max_searches"]: raise HTTPException(402, "Search limit reached for your plan")
+    cap = search_cap(db, u)
+    if n >= cap: raise HTTPException(402, f"הגעת למכסת החיפושים של החבילה ({cap}). מחק חיפוש קיים (למשל כפילות) או שדרג חבילה.")
     s = SearchConfig(user_id=u.id, **b.model_dump()); db.add(s); db.commit(); return {"id": s.id}
 @app.get("/api/searches")
 def list_searches(u: User = Depends(current_user), db: Session = Depends(get_db)):
@@ -349,6 +350,9 @@ def reset(b: ResetIn, db: Session = Depends(get_db)):
     u = db.get(User, r.user_id); u.password_hash = hash_pw(b.password); r.used = True; _revoke_all(db, u.id); db.commit()
     return {"ok": True}
 PLANS = {"starter": {"price": 0, "max_searches": 3}, "pro": {"price": 99, "max_searches": 15}, "vip": {"price": 149, "max_searches": 50}}
+def search_cap(db, u) -> int:
+    """Search quota. Owners/admins are not capped (they run the system); everyone else follows the plan."""
+    return 10**6 if u.role in ("admin", "super_admin") else PLANS[_plan(db, u)]["max_searches"]
 def _sub(db, u): return db.scalar(select(Subscription).where(Subscription.user_id == u.id))
 def _plan(db, u):
     s = _sub(db, u); return s.plan if s and s.status == "active" else "starter"

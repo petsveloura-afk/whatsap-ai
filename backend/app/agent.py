@@ -239,7 +239,7 @@ class Toolbox:
         from . import main as M
         if category not in llm.CATS: raise ValueError("bad category")
         n = self.db.scalar(select(func.count()).select_from(SearchConfig).where(SearchConfig.user_id == self.u.id, SearchConfig.deleted_at.is_(None))) or 0
-        if n >= M.PLANS[M._plan(self.db, self.u)]["max_searches"]: return {"error": "search limit reached for the current plan"}
+        if n >= M.search_cap(self.db, self.u): return {"error": "search limit reached for the current plan"}
         s = SearchConfig(user_id=self.u.id, name=str(name)[:120], category=category, location=location, min_price=min_price, max_price=max_price,
                          required_keywords=[str(x)[:40] for x in (required_keywords or [])][:20], excluded_keywords=[str(x)[:40] for x in (excluded_keywords or [])][:20],
                          min_score=max(0, min(100, int(min_score))))
