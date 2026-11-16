@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fmtPrice } from "./lib/search";
 
 type Api = (path: string, o?: any) => Promise<any>;
@@ -54,9 +54,45 @@ export function waText(l: any) {
   return `שלום, ראיתי את המודעה${x.location ? " ב" + x.location : ""}${x.price ? " (" + fmtPrice(x.price, x.currency) + ")" : ""}. האם עדיין רלוונטי?`;
 }
 
+
+let rememberedName = "";   // kept for the session only, so the signature is typed once
+/** Draft of a first message to the owner. Nothing is sent by us: WhatsApp / mail open with the text and the user presses send there. */
+function Composer({ l, c, api, onToast, contacted }: { l: any; c: any; api: Api; onToast: (m: string) => void; contacted: () => void }) {
+  const [tone, setTone] = useState("friendly"), [variant, setVariant] = useState(0), [name, setName] = useState(rememberedName), [text, setText] = useState(waText(l));
+  const [busy, setBusy] = useState(false), [ai, setAi] = useState(false);
+  const load = async (t: string, v: number, polish = false) => {
+    try { setBusy(true); const r = await api(`/api/listings/${l.id}/draft?tone=${t}&variant=${v}&name=${encodeURIComponent(name)}${polish ? "&polish=true" : ""}`); setText(r.text); setAi(!!r.ai); if (polish && !r.ai) onToast("ניסוח AI לא זמין כרגע, נשארה הטיוטה הרגילה"); }
+    catch { onToast("לא ניתן להכין טיוטה כרגע"); } finally { setBusy(false); }
+  };
+  useEffect(() => { load(tone, variant); }, []);
+  const pick = (t: string) => { setTone(t); setVariant(0); load(t, 0); };
+  const another = () => { const v = variant + 1; setVariant(v); load(tone, v); };
+  const copy = async () => { try { await navigator.clipboard.writeText(text); onToast("ההודעה הועתקה"); } catch { onToast("לא ניתן להעתיק כאן"); } };
+  const enc = encodeURIComponent(text);
+  return (
+    <div className="outbox" aria-label="הכנת הודעה">
+      <h5>הודעה לבעל המודעה</h5>
+      <div className="c-row">
+        {([["friendly", "ידידותי"], ["formal", "רשמי"], ["short", "קצר"]] as [string, string][]).map(([k, n]) => <button key={k} className={"ghost sm" + (tone === k ? " on" : "")} onClick={() => pick(k)} disabled={busy}>{n}</button>)}
+        <button className="ghost sm" onClick={another} disabled={busy}>ניסוח אחר</button>
+        <button className="ghost sm" onClick={() => load(tone, variant, true)} disabled={busy}>שפר ב-AI</button>
+      </div>
+      <input value={name} maxLength={40} placeholder="השם שלך (לחתימה, אופציונלי)" onChange={e => { setName(e.target.value); rememberedName = e.target.value; }} onBlur={() => load(tone, variant)} />
+      <textarea rows={5} style={{ width: "100%" }} value={text} onChange={e => setText(e.target.value)} aria-label="נוסח ההודעה" />
+      {ai && <div className="faint">נוסח בעזרת AI. קרא ותקן לפני שליחה.</div>}
+      <div className="c-row">
+        {c.phones.filter((p: any) => p.whatsapp).map((p: any) => <a key={p.tel} className="btn wa sm" href={p.whatsapp + "?text=" + enc} target="_blank" rel="noopener noreferrer" onClick={contacted}><Icon n="chat" />שלח בוואטסאפ ל-{p.display}</a>)}
+        {c.emails.map((m: string) => <a key={m} className="btn mail sm" href={`mailto:${m}?subject=${encodeURIComponent("בנוגע למודעה: " + titleOf(l))}&body=${enc}`} onClick={contacted}><Icon n="mail" />שלח במייל</a>)}
+        <button className="ghost sm" onClick={copy}><Icon n="copy" />העתק</button>
+      </div>
+      <div className="faint">ההודעה נפתחת באפליקציה שלך ויוצאת רק כשאתה לוחץ "שלח" שם. המערכת לא שולחת דבר בעצמה.</div>
+    </div>
+  );
+}
+
 /** One opportunity: score ring, key facts, why it matched, and one-tap ways to reach the owner. */
 export function ListingCard({ l, act, api, onToast }: { l: any; act: (fn: () => Promise<any>) => Promise<void>; api: Api; onToast: (m: string) => void }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(false), [compose, setCompose] = useState(false);
   const x = l.extracted || {}, c = contactOf(l);
   const hasDirect = c.phones.length || c.emails.length || c.wa.length || c.tg.length;
   const mark = (k: string) => act(() => api(`/api/listings/${l.id}/${k}`, { method: "POST" }));
@@ -112,7 +148,9 @@ export function ListingCard({ l, act, api, onToast }: { l: any; act: (fn: () => 
           <button className="ghost sm" onClick={copy}><Icon n="copy" />העתק פרטים</button>
         </div>
       </div>
+      {compose && <Composer l={l} c={c} api={api} onToast={onToast} contacted={contacted} />}
       <div className="l-actions">
+        {hasDirect && <button className="ghost sm" onClick={() => setCompose(!compose)}><Icon n="send" />{compose ? "סגור הודעה" : "הכן הודעה"}</button>}
         <button className="ghost sm" onClick={() => mark("save")} disabled={l.status === "saved"}><Icon n="star" />שמור</button>
         <button className="ghost sm" onClick={() => mark("contacted")} disabled={l.status === "contacted"}><Icon n="check" />יצרתי קשר</button>
         <button className="ghost sm" onClick={() => mark("purchased")} disabled={l.status === "purchased"}><Icon n="bolt" />נסגר</button>

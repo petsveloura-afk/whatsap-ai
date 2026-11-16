@@ -361,3 +361,10 @@ pre{padding:.8rem;overflow:auto;line-height:1.55}
   .range input{inline-size:90px}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* outreach draft box inside a listing card */
+.outbox{display:flex;flex-direction:column;gap:.5rem;margin-top:.6rem;padding:.7rem;border:1px solid var(--line,rgba(128,128,128,.3));border-radius:12px}
+.outbox h5{margin:0}
+.outbox input,.outbox textarea{margin:0;inline-size:100%;box-sizing:border-box;font:inherit}
+.outbox textarea{resize:vertical;line-height:1.5}
+.outbox .ghost.on{border-color:currentColor;font-weight:600}

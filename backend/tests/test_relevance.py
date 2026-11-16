@@ -50,3 +50,26 @@ def test_admin_has_no_search_cap_but_user_does():
     class U:  # minimal stand-in; plan lookup is bypassed for admins
         def __init__(s, role): s.role = role; s.id = "x"
     assert M.search_cap(None, U("super_admin")) > 1000 and M.search_cap(None, U("admin")) > 1000
+
+
+def test_outreach_drafts_are_grammatical_and_honest():
+    from app.outreach import draft, safe_polished
+    x = {"rooms": 3, "location": "Holon", "price": 5200, "currency": "ILS"}
+    d = draft(x, "real_estate", "friendly", "דנה")
+    assert "דירת 3 חדרים בחולון" in d and "5,200" in d and d.rstrip().endswith("דנה")
+    assert "ברכב" in draft({}, "vehicles", "friendly", variant=2) and "בהרכב" not in draft({}, "vehicles", "friendly", variant=2)
+    assert len({draft(x, "real_estate", "friendly", variant=v) for v in range(3)}) == 3
+    assert len(draft(x, "real_estate", "short")) < len(draft(x, "real_estate", "formal"))
+    assert safe_polished(d, "היי, מעוניין בדירה. האם פנויה?") is not None
+    assert safe_polished(d, "היי, אשלם 4,000 ₪ מיד") is None          # AI may not invent numbers
+
+
+def test_draft_endpoint_isolated_and_sends_nothing():
+    from tests.test_core import c, tok
+    a, b = tok("dr1@x.com"), tok("dr2@x.com")
+    sid = c.post("/api/searches", headers=a, json={"name": "s", "category": "real_estate", "location": "Holon", "max_price": 9000}).json()["id"]
+    lid = c.post("/api/listings/ingest", headers=a, json={"search_id": sid, "text": "דירת 3 חדרים בחולון, משופצת, ללא תיווך, 5,200 ש״ח. 050-123-4567"}).json()["id"]
+    r = c.get(f"/api/listings/{lid}/draft?tone=friendly&name=דנה", headers=a)
+    assert r.status_code == 200 and "חולון" in r.json()["text"] and r.json()["ai"] is False
+    assert "050" not in r.json()["text"]                                   # the owner's phone is never pasted into the message
+    assert c.get(f"/api/listings/{lid}/draft", headers=b).status_code == 404

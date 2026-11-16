@@ -8,6 +8,7 @@ from .db import get_db
 from .main import limiter
 from .models import User
 from .routes_v2 import need, ADMIN
+from .main import current_user
 
 router = APIRouter(); log = logging.getLogger("sniper")
 
@@ -23,3 +24,25 @@ def brains_test(a: User = Depends(need(*ADMIN))):
     """Sends one tiny request per configured AI key (max 3 per provider) and reports which really work. Uses a little free quota."""
     if not limiter.allow("brains-test:" + a.id, 3, 300): raise HTTPException(429, "בדיקה אחת בכל כמה דקות מספיקה, נסה שוב מאוחר יותר")
     return {"results": brains.ping()}
+
+
+from sqlalchemy import select as _select
+from . import outreach as _outreach
+from .models import Listing as _Listing, SearchConfig as _SC
+
+
+@router.get("/api/listings/{lid}/draft")
+def listing_draft(lid: str, tone: str = "friendly", name: str = "", variant: int = 0, polish: bool = False, u: User = Depends(current_user), db: Session = Depends(get_db)):
+    """A ready-to-send first message to the owner. Nothing is sent from here: the UI opens the user's own WhatsApp / mail app."""
+    l = db.get(_Listing, lid)
+    if not l or l.user_id != u.id: raise HTTPException(404, "Listing not found")
+    s = db.get(_SC, l.search_id)
+    text = _outreach.draft(l.extracted or {}, s.category if s else None, tone, name, max(0, min(variant, 20)))
+    ai = False
+    if polish and limiter.allow("polish:" + u.id, 20, 3600):
+        try:
+            r = brains.complete(_outreach.polish_prompt(text, tone), temperature=0.7, max_tokens=300, purpose="draft")
+            better = _outreach.safe_polished(text, brains.text_of(r))
+            if better: text, ai = better, True
+        except Exception as e: log.info("draft polish skipped: %s", type(e).__name__)
+    return {"text": text, "tone": tone, "ai": ai}
