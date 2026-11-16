@@ -80,12 +80,15 @@ def _lst(v) -> list:
 def listing_card(l) -> dict:
     """Serialises a Listing row for the dashboard: everything the old endpoint returned (id, score, status, extracted, risks)
     plus the title/summary, source, contact actions and timestamps. Old keys are never removed or renamed."""
+    from .relevance import gate
     raw = (l.raw_text or "").strip(); sd = l.score_detail if isinstance(l.score_detail, dict) else {}
     first = raw.split("\n", 1)[0].strip()
+    g = gate(raw, l.source_url, l.extracted or {}) if l.status in ("new", "contacted") else None
+    score, status = (min(l.score, g[0]), "rejected") if g and g[0] < 59 else (l.score, l.status)
     return {
-        "id": l.id, "score": l.score, "status": l.status, "extracted": l.extracted, "risks": l.risks,
+        "id": l.id, "score": score, "status": status, "extracted": l.extracted, "risks": l.risks,
         "search_id": l.search_id, "title": first[:140], "summary": " ".join(raw.split())[:420], "raw_text": raw[:5000],
         "source_url": l.source_url, "contact": extract_contacts(raw, l.source_url),
         "note": l.note, "created_at": l.created_at.isoformat() if l.created_at else None,
-        "highlights": _lst(sd.get("highlights")), "reasons": _lst(sd.get("rejection_reasons")), "label": sd.get("label"),
+        "highlights": _lst(sd.get("highlights")), "reasons": _lst([*(sd.get("rejection_reasons") or []), *([g[1]] if g else [])]), "label": sd.get("label"),
     }

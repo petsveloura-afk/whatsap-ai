@@ -12,6 +12,7 @@ from .events import hub, STATS
 from .security import hash_pw, check_pw, make_token, read_token
 from .extract import extract
 from .contacts import listing_card
+from .relevance import gate
 from .scoring import score, risks
 from .nlsearch import parse_search
 from .neardup import is_near_duplicate, embed
@@ -215,6 +216,10 @@ def pipeline(db, u, s, text, url):
     pers = None
     rk = _timed("filter_antispam", risks, ex, s)
     sc = _timed("matching", score, ex, s, text)
+    g = gate(text, url, ex)
+    if g:
+        sc["score"] = min(sc["score"], g[0]); sc["rejection_reasons"] = [*sc["rejection_reasons"], g[1]]
+        if g[0] < 59: sc["label"] = "low"
     if _personalization_on(db, u) and not sc["rejection_reasons"]:
         mem = db.scalars(select(AiMemory).where(AiMemory.user_id == u.id)).all()
         pers = adjustment(text, [m.embedding for m in mem if m.kind == "saved"], [m.embedding for m in mem if m.kind == "rejected"])
