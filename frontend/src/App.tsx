@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Wizard, SourcesPanel, MemoryPanel, Notifications, AdminPanel } from "./panels";
 import { GrowthPanel } from "./growth";
+import { AssistantPanel } from "./assistant";
 const API: string = (import.meta as any).env.VITE_API_URL || "";
 let access = "";
 async function refresh(): Promise<boolean> {
@@ -70,6 +71,7 @@ function Dash({ user, onLogout }: any) {
     <div className="card"><h3>סוכנים (טלמטריה חיה)</h3><table><tbody>{agents.map(a => <tr key={a.name}><td>{a.name}</td><td>{a.status}</td><td>{a.processed} רשומות</td><td>{a.errors} שגיאות</td><td>{a.avg_ms ?? "-"}ms</td></tr>)}</tbody></table></div>
     <Notifications api={api} />
     <Wizard api={api} onCreated={load} />
+    <AssistantPanel api={api} searches={searches} />
     <div className="card"><h3>חיפוש חדש</h3><input placeholder="שם" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /><select value={f.category} onChange={e => setF({ ...f, category: e.target.value })}><option value="real_estate">נדל״ן</option><option value="vehicles">רכב</option><option value="electronics">אלקטרוניקה</option></select>
       <input placeholder="מיקום" value={f.location} onChange={e => setF({ ...f, location: e.target.value })} /><input placeholder="מחיר מקסימלי" value={f.max_price} onChange={e => setF({ ...f, max_price: e.target.value })} /><button onClick={create}>צור</button>
       {searches.map(s => <div key={s.id}>{s.name} ({s.active ? "פעיל" : "מושהה"}) <button className="ghost" onClick={() => act(() => api(`/api/searches/${s.id}/${s.active ? "pause" : "resume"}`, { method: "POST" }))}>{s.active ? "השהה" : "המשך"}</button> <button className="ghost" onClick={() => act(() => api(`/api/searches/${s.id}`, { method: "DELETE" }))}>מחק</button></div>)}</div>

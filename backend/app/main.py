@@ -428,3 +428,8 @@ from . import routes_v3
 app.include_router(routes_v3.router)
 app.middleware("http")(routes_v3.edge)
 routes_v3.install()
+try:   # v3.2 additive routes; a failure here must never take the core API down
+    from . import routes_v4
+    app.include_router(routes_v4.router)
+except Exception:
+    import logging as _lg; _lg.getLogger("sniper").exception("routes_v4 not loaded (core API unaffected)")

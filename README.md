@@ -57,3 +57,14 @@ Public API keys, signed webhooks, referrals, share links, market intelligence ("
 - `DATABASE_URL` must use the `postgresql+psycopg://` prefix.
 - Alembic migrations were written for SQLite; `backend/migrations/env.py` converts Boolean `DEFAULT 0/1` to `false/true` when running on Postgres.
 - After pushing a fix, make sure the new Railway deployment shows the latest commit (use a new commit, not Redeploy of an old one).
+
+## v3.2 - smarter brain (free, local, no new dependencies)
+- Extraction: ~70 Israeli cities (Hebrew/English, prefixes like ב/ל/מ), price formats (₪ before/after, אלף, מיליון, 5.200 thousands dot, $/€), rooms in words, area, floor, features, rent/sale, vehicles (brand/year/km/hand), phones (model/storage), negotiable/urgent, scam-signal flags. Original keys unchanged.
+- Scoring: numeric keywords compare to extracted rooms (no more matching digits inside prices); negated words ("ללא תיווך") no longer trip an excluded "תיווך"; Hebrew or English search locations; human-readable `highlights` and a `label`.
+- Risks: advance-payment / gift-card / pressure language, high mileage, needs-renovation (indicators, never proof).
+- Natural-language search: price ranges ("בין 6000 ל-8000"), "70 אלף", "3.5 million", "מתחת ל", features ("עם חניה ומעלית"), plus an `understood` summary.
+- UI: new glass/aurora design system (CSS only), light+dark, mobile friendly, reduced-motion aware.
+- Tests: `backend/tests/test_smart_modules.py` (pure, no DB/network).
+- New endpoints (additive, loaded in a try/except so the core API can't be affected): `GET /api/sources/suggest?search_id=`, `POST /api/sources/suggest/apply`, `POST /api/assistant`, `GET /api/listings/{id}/explain`, `GET /api/searches/{id}/report`.
+- Free AI: `llm.py` supports Groq / Gemini / OpenRouter / Ollama free tiers through the OpenAI-compatible protocol (see `.env.example`). Off unless you add a free key AND enable the admin flag; the assistant falls back to local rules.
+- Source discovery stays within Scout's guards (SSRF, robots.txt, size/time limits). No scraping of sites that forbid it.
