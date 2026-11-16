@@ -41,40 +41,41 @@ def _txt(s) -> str:
 
 
 # ---- free search engines. Each fetch(q, n, key) -> raw JSON; each parse(raw) -> [{title,url,snippet}] ----------------------------------
-def _nonews(q: str) -> str:
-    return q + " " + " ".join("-site:" + d for d in NEWS_DOMAINS[:8])
+def _nonews(q: str, site: str | None = None) -> str:
+    """Excludes news domains; with `site`, restricts to that classifieds domain instead (site: operator)."""
+    return q + " site:" + site if site else q + " " + " ".join("-site:" + d for d in NEWS_DOMAINS[:8])
 
 
-def _f_brave(q, n, k):
+def _f_brave(q, n, k, site=None):
     return _http("GET", "https://api.search.brave.com/res/v1/web/search", {"X-Subscription-Token": k, "Accept": "application/json"},
-                 params={"q": _nonews(q), "count": n, "country": "IL", "search_lang": "he"})
+                 params={"q": _nonews(q, site), "count": n, "country": "IL", "search_lang": "he"})
 
 
-def _f_tavily(q, n, k):
+def _f_tavily(q, n, k, site=None):
     return _http("POST", "https://api.tavily.com/search", {"Authorization": "Bearer " + k},
-                 json={"query": q, "max_results": n, "search_depth": "basic", "country": "israel", "exclude_domains": NEWS_DOMAINS})
+                 json={"query": q, "max_results": n, "search_depth": "basic", "country": "israel", **({"include_domains": [site]} if site else {"exclude_domains": NEWS_DOMAINS})})
 
 
-def _f_serper(q, n, k):
-    return _http("POST", "https://google.serper.dev/search", {"X-API-KEY": k, "Content-Type": "application/json"}, json={"q": _nonews(q), "num": n, "gl": "il", "hl": "iw"})
+def _f_serper(q, n, k, site=None):
+    return _http("POST", "https://google.serper.dev/search", {"X-API-KEY": k, "Content-Type": "application/json"}, json={"q": _nonews(q, site), "num": n, "gl": "il", "hl": "iw"})
 
 
-def _f_exa(q, n, k):
+def _f_exa(q, n, k, site=None):
     return _http("POST", "https://api.exa.ai/search", {"x-api-key": k, "Content-Type": "application/json"},
-                 json={"query": q, "numResults": n, "type": "auto", "excludeDomains": NEWS_DOMAINS, "contents": {"text": {"maxCharacters": 600}}})
+                 json={"query": q, "numResults": n, "type": "auto", **({"includeDomains": [site]} if site else {"excludeDomains": NEWS_DOMAINS}), "contents": {"text": {"maxCharacters": 600}}})
 
 
-def _f_jina(q, n, k):
-    return _http("GET", "https://s.jina.ai/", {"Authorization": "Bearer " + k, "Accept": "application/json", "X-Respond-With": "no-content"}, params={"q": _nonews(q), "gl": "IL", "hl": "he"})
+def _f_jina(q, n, k, site=None):
+    return _http("GET", "https://s.jina.ai/", {"Authorization": "Bearer " + k, "Accept": "application/json", "X-Respond-With": "no-content"}, params={"q": _nonews(q, site), "gl": "IL", "hl": "he"})
 
 
-def _f_gcse(q, n, k):
-    return _http("GET", "https://www.googleapis.com/customsearch/v1", {}, params={"key": k, "cx": os.environ.get("GOOGLE_CSE_CX", ""), "q": _nonews(q), "num": min(n, 10), "gl": "il", "lr": "lang_iw"})
+def _f_gcse(q, n, k, site=None):
+    return _http("GET", "https://www.googleapis.com/customsearch/v1", {}, params={"key": k, "cx": os.environ.get("GOOGLE_CSE_CX", ""), "q": _nonews(q, site), "num": min(n, 10), "gl": "il", "lr": "lang_iw"})
 
 
-def _f_searx(q, n, k):
+def _f_searx(q, n, k, site=None):
     base = os.environ.get("SEARXNG_URL", "").rstrip("/")
-    return _http("GET", base + "/search", {"Accept": "application/json"}, params={"q": _nonews(q), "format": "json", "language": "he", "safesearch": 0})
+    return _http("GET", base + "/search", {"Accept": "application/json"}, params={"q": _nonews(q, site), "format": "json", "language": "he", "safesearch": 0})
 
 
 _L = lambda items, t, u, s: [{"title": r.get(t), "url": r.get(u), "snippet": r.get(s)} for r in (items or []) if isinstance(r, dict)]
@@ -134,7 +135,7 @@ def _clean(rows: list[dict], seen: set) -> list[dict]:
     return out
 
 
-def search(query: str, n: int = 10) -> list[dict]:
+def search(query: str, n: int = 10, site: str | None = None) -> list[dict]:
     """-> [{title, url, snippet}] from the configured free search APIs. Several keys per engine rotate; an engine that is rate limited rests
     and the next one answers; when the first engine returns few results the next one tops them up (up to 3 engines).
     Raises RuntimeError when none is configured or every configured engine failed."""
@@ -151,7 +152,7 @@ def search(query: str, n: int = 10) -> list[dict]:
             if not pool.available(kid): continue
             t0 = time.monotonic()
             try:
-                got = e["parse"](e["fetch"](q, n, k) or {})
+                got = e["parse"](e["fetch"](q, n, k, **({"site": site} if site else {})) or {})
                 pool.record("web:" + e["name"], True, ms=(time.monotonic() - t0) * 1000); break
             except Exception as ex:
                 st = getattr(ex, "status", None); msg = pool.redact(f"{e['name']}: {ex}", k)
@@ -162,6 +163,46 @@ def search(query: str, n: int = 10) -> list[dict]:
         if len(results) >= min(n, 6) or asked >= _SEARCH_PARTS: break
     if not asked: raise RuntimeError("all web search providers failed or are resting: " + "; ".join(errors[-3:])[:250])
     return results[:n]
+
+
+# Classified sites a search engine has indexed. Querying them with site: is how the engines can surface real listing pages
+# (we still only read title + snippet + link from the API, never the page itself).
+SITES = {"real_estate": ["yad2.co.il", "madlan.co.il", "homeless.co.il", "winwin.co.il"], "vehicles": ["yad2.co.il", "yad2.co.il/vehicles", "carzone.co.il"],
+         "electronics": ["yad2.co.il", "ksp.co.il"], "furniture": ["yad2.co.il"]}
+MAX_QUERIES = 5
+
+
+def plan_queries(params: dict, query: str | None = None) -> list[tuple[str, str | None]]:
+    """-> [(query, site|None)]. One open query per city mentioned, then one query per classifieds site, capped (each costs engine quota)."""
+    from . import feeds
+    from .extract import find_cities
+    base = _txt(query) if query else feeds.build_query(params)
+    cities = find_cities(query) if query else []
+    qs: list[tuple[str, str | None]] = [(base, None)]
+    for c in cities[1:3]:                                    # a typed query that names several cities gets one open query for each extra city
+        qs.append((re.sub(r"\S*" + re.escape(feeds.hebrew_name(cities[0]) or "") + r"\S*", feeds.hebrew_name(c) or c, base, count=1), None))
+    for site in SITES.get(params.get("category") or "", ["yad2.co.il"]):
+        qs.append((base, site))
+    seen, out = set(), []
+    for q in qs:
+        if q not in seen: seen.add(q); out.append(q)
+    try: cap = max(1, min(int(os.environ.get("SEARCH_QUERIES_MAX", MAX_QUERIES)), 8))
+    except ValueError: cap = MAX_QUERIES
+    return out[:cap]
+
+
+def find(params: dict, query: str | None = None, n: int = 10) -> tuple[list[dict], list[dict]]:
+    """Runs the planned queries and merges the unique results. -> (results, [{query, site, found}]).
+    Raises RuntimeError only when every query failed; a failing site query just yields fewer results."""
+    n = max(1, min(int(n), MAX_RESULTS)); merged: list[dict] = []; seen: set = set(); report = []; err: RuntimeError | None = None; ok = 0
+    for q, site in plan_queries(params, query):
+        try: rows = search(q, n, site)
+        except RuntimeError as e: err = e; report.append({"query": q, "site": site, "found": 0, "error": str(e)[:120]}); continue
+        ok += 1; fresh = [r for r in rows if r["url"] not in seen]
+        for r in fresh: seen.add(r["url"])
+        merged += fresh; report.append({"query": q, "site": site, "found": len(fresh)})
+    if not ok and err: raise err
+    return merged[: n * 3], report
 
 
 def _contacts(text, url):

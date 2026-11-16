@@ -111,6 +111,7 @@ export function DiscoverPanel({ api, searches, onChanged }: { api: Api; searches
       {res && (
         <div className="found">
           <p>{res.results_found != null ? `נמצאו ${res.results_found} תוצאות. ` : `נותחו ${res.parsed} מודעות. `}התאמות חדשות: <b>{res.new}</b> · נפסלו: {res.rejected} · כבר קיימות: {res.duplicates}{res.irrelevant ? ` · כתבות שסוננו: ${res.irrelevant}` : ""}{res.errors ? ` · שגיאות: ${res.errors}` : ""}</p>
+          {res.queries?.length > 0 && <details className="faint"><summary>מה נחפש ({res.queries.length} חיפושים)</summary>{res.queries.map((q: any, k: number) => <div key={k}>{q.site ? `באתר ${q.site}` : "חיפוש כללי"}: {q.query} · {q.error ? "שגיאה: " + q.error : `${q.found} תוצאות`}</div>)}</details>}
           {res.items?.map((i: any) => { const ph = i.contact?.phones?.[0]; return <div className="found-row" key={i.id}><span className="score" style={{ "--p": i.score } as any}>{i.score}</span>
             <span className="fr-main"><b>{i.title || i.location || "?"}</b><span className="faint">{i.location || "?"}{i.price ? ` · ${Math.round(i.price).toLocaleString()}` : ""}{ph ? ` · ${ph.display}` : ""}</span></span>
             <span className="fr-act">

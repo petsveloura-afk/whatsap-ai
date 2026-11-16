@@ -108,11 +108,10 @@ def discover(b: DiscoverIn, u: User = Depends(current_user), db: Session = Depen
     if not discovery.provider(): raise HTTPException(503, "חיפוש ברשת לא מוגדר: הוסף מפתח חינמי אחד לפחות בשרת (TAVILY_API_KEY, SERPER_API_KEY, BRAVE_API_KEY, EXA_API_KEY, JINA_API_KEY או SEARXNG_URL)")
     if not s.active: raise HTTPException(409, "Search is paused")
     if not _m.limiter.allow("web:" + u.id, 20, 3600): raise HTTPException(429, "מכסת חיפושי רשת לשעה הסתיימה")
-    from . import feeds
-    q = b.query or feeds.build_query({"name": s.name, "category": s.category, "location": s.location, "required_keywords": s.required_keywords or []})
-    try: results = discovery.search(q, b.limit)
+    params = {"name": s.name, "category": s.category, "location": s.location, "required_keywords": s.required_keywords or [], "max_price": s.max_price}
+    try: results, report = discovery.find(params, b.query, b.limit)
     except RuntimeError as e: raise HTTPException(502, str(e)[:200])
-    return {"query": q, "results_found": len(results), **discovery.import_results(db, u, s, results)}
+    return {"query": report[0]["query"] if report else "", "queries": report, "results_found": len(results), **discovery.import_results(db, u, s, results)}
 
 
 class BulkIn(BaseModel):

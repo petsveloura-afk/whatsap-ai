@@ -296,12 +296,13 @@ class Toolbox:
         if not discovery.provider(): return {"error": "web search is not configured (admin must add a free search key, e.g. TAVILY_API_KEY)"}
         if not s.active: return {"error": "search is paused"}
         if not M.limiter.allow("web:" + self.u.id, 20, 3600): return {"error": "web search limit reached (20 per hour)"}
-        q = query or feeds.build_query({"name": s.name, "category": s.category, "location": s.location, "required_keywords": s.required_keywords or []})
-        try: results = discovery.search(q, limit)
+        params = {"name": s.name, "category": s.category, "location": s.location, "required_keywords": s.required_keywords or [], "max_price": s.max_price}
+        try: results, report = discovery.find(params, query, limit)
         except RuntimeError as e: return {"error": str(e)[:200]}
+        q = report[0]["query"] if report else ""
         out = discovery.import_results(self.db, self.u, s, results)
         self._log("web_search_import", f"חיפוש ברשת: {len(results)} תוצאות, {out['new']} התאמות חדשות", id=s.id)
-        return {"query": q, "results_found": len(results), **out}
+        return {"query": q, "queries": report, "results_found": len(results), **out}
 
     def t_ingest_many(self, search_id, text):
         s = self._search(search_id)

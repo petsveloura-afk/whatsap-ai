@@ -17,6 +17,13 @@ _LISTING = re.compile(
     r"₪|ש[\"״]ח|שקל|יד\s*שנייה|יד\s*2|לא\s*תיווך|ללא\s*תיווך|for\s*(?:rent|sale)|\brent\b|\bprice\b|\bsale\b|\$\s*\d|\d\s*\$|nis",
     re.I)
 
+_CLASSIFIED_HOSTS = ("yad2.co.il", "madlan.co.il", "homeless.co.il", "winwin.co.il", "komo.co.il", "onmap.co.il", "carzone.co.il", "ksp.co.il", "facebook.com/marketplace")
+
+
+def is_classified_host(url: str | None) -> bool:
+    u = real_url(url) or ""; p = urlparse(u); full = (p.hostname or "").lower().removeprefix("www.") + (p.path or "")
+    return any(h in full for h in _CLASSIFIED_HOSTS)
+
 
 def real_url(url: str | None) -> str:
     """Bing/Google News wrap the target in a redirect (…?url=https%3a%2f%2fwww.globes.co.il…). Unwrap it for host checks."""
@@ -45,6 +52,8 @@ def gate(text: str, url: str | None, ex: dict) -> tuple[int, str] | None:
     listing_words = bool(_LISTING.search(t))
     if news and not (has_price and listing_words):
         return 25, "Not a listing: looks like a news/legal article"
+    if not has_price and is_classified_host(url) and not news:
+        return None          # a classifieds page: search snippets often omit the price, so it is scored on the rest and flagged "price missing"
     if not has_price and not listing_words:
         return 35, "Not a listing: no price or sale/rent wording"
     if not has_price and ex.get("category") in ("real_estate", "vehicles", "electronics"):

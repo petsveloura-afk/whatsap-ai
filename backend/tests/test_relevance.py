@@ -66,10 +66,32 @@ def test_outreach_drafts_are_grammatical_and_honest():
 
 def test_draft_endpoint_isolated_and_sends_nothing():
     from tests.test_core import c, tok
-    a, b = tok("dr1@x.com"), tok("dr2@x.com")
+    import uuid; z = uuid.uuid4().hex[:8]; a, b = tok(f"dr1{z}@x.com"), tok(f"dr2{z}@x.com")
     sid = c.post("/api/searches", headers=a, json={"name": "s", "category": "real_estate", "location": "Holon", "max_price": 9000}).json()["id"]
-    lid = c.post("/api/listings/ingest", headers=a, json={"search_id": sid, "text": "דירת 3 חדרים בחולון, משופצת, ללא תיווך, 5,200 ש״ח. 050-123-4567"}).json()["id"]
+    lid = c.post("/api/listings/ingest", headers=a, json={"search_id": sid, "text": f"דירת 3 חדרים בחולון, משופצת, ללא תיווך, 5,200 ש״ח. 050-123-4567 מודעה {z}"}).json()["id"]
     r = c.get(f"/api/listings/{lid}/draft?tone=friendly&name=דנה", headers=a)
     assert r.status_code == 200 and "חולון" in r.json()["text"] and r.json()["ai"] is False
     assert "050" not in r.json()["text"]                                   # the owner's phone is never pasted into the message
     assert c.get(f"/api/listings/{lid}/draft", headers=b).status_code == 404
+
+
+def test_web_search_runs_site_queries_and_keeps_priceless_classified_pages(monkeypatch):
+    from tests.test_core import c, tok
+    from app import discovery
+    monkeypatch.setenv("TAVILY_API_KEY", "t-test"); monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+    calls = []; z = __import__("uuid").uuid4().hex[:8]
+    def http(m, u, h, params=None, json=None):
+        calls.append(json or params); site = (json or {}).get("include_domains", [None])[0]
+        if site == "yad2.co.il":
+            return {"results": [{"title": "דירת 3 חדרים בחולון להשכרה - יד2", "url": f"https://www.yad2.co.il/item/{z}", "content": f"דירת 3 חדרים בחולון, קומה 2, משופצת. לפרטים 050-123-4567 מס {z}"}]}
+        if site: return {"results": []}
+        return {"results": [{"title": "פסק דין בבית המשפט בחולון", "url": "https://www.globes.co.il/x", "content": "בית המשפט המחוזי דחה ערעור"}]}
+    monkeypatch.setattr(discovery, "_http", http)
+    a = tok(f"web1{z}@x.com")
+    sid = c.post("/api/searches", headers=a, json={"name": "s", "category": "real_estate", "location": "Holon", "max_price": 6000}).json()["id"]
+    r = c.post("/api/agent/discover", headers=a, json={"search_id": sid, "query": None, "limit": 10})
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert len(j["queries"]) >= 3 and any(q["site"] == "yad2.co.il" for q in j["queries"])      # open query + classifieds-site queries
+    assert j["irrelevant"] == 1 and j["new"] == 1                                              # court article dropped, yad2 page kept (price missing is only a flag)
+    assert j["items"][0]["contact"]["phones"][0]["display"] == "050-123-4567"
