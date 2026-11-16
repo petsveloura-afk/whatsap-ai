@@ -8,9 +8,13 @@ import html, logging, os, re
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from .models import User, SearchConfig
+from .relevance import is_news_host
 
 log = logging.getLogger("sniper")
 MAX_RESULTS, MAX_BULK = 15, 30
+# News / reference sites never contain contactable listings. Excluded at the search API and filtered again on import.
+NEWS_DOMAINS = ["globes.co.il", "calcalist.co.il", "themarker.com", "ynet.co.il", "walla.co.il", "mako.co.il", "n12.co.il", "haaretz.co.il", "maariv.co.il",
+                "israelhayom.co.il", "kan.org.il", "timesofisrael.com", "jpost.com", "wikipedia.org", "news.google.com", "bing.com"]
 
 
 def provider() -> str | None:
@@ -37,11 +41,11 @@ def search(query: str, n: int = 10) -> list[dict]:
     n = max(1, min(int(n), MAX_RESULTS)); p = provider(); out = []
     if p == "brave":
         d = _http("GET", "https://api.search.brave.com/res/v1/web/search", {"X-Subscription-Token": os.environ["BRAVE_API_KEY"], "Accept": "application/json"},
-                  params={"q": q, "count": n, "country": "IL", "search_lang": "he"})
+                  params={"q": q + " " + " ".join("-site:" + d for d in NEWS_DOMAINS[:8]), "count": n, "country": "IL", "search_lang": "he"})
         out = [{"title": r.get("title"), "url": r.get("url"), "snippet": r.get("description")} for r in (d.get("web") or {}).get("results", [])]
     elif p == "tavily":
         d = _http("POST", "https://api.tavily.com/search", {"Authorization": "Bearer " + os.environ["TAVILY_API_KEY"]},
-                  json={"query": q, "max_results": n, "search_depth": "basic"})
+                  json={"query": q, "max_results": n, "search_depth": "basic", "country": "israel", "exclude_domains": NEWS_DOMAINS})
         out = [{"title": r.get("title"), "url": r.get("url"), "snippet": r.get("content")} for r in d.get("results", [])]
     else:
         raise RuntimeError("no web search key configured (BRAVE_API_KEY or TAVILY_API_KEY)")
@@ -73,7 +77,7 @@ def _ingest(db: Session, u: User, s: SearchConfig, text: str, url: str | None, o
 
 
 def _summary() -> dict:
-    return {"new": 0, "rejected": 0, "duplicates": 0, "errors": 0, "items": []}
+    return {"new": 0, "rejected": 0, "duplicates": 0, "errors": 0, "irrelevant": 0, "items": []}
 
 
 def import_results(db: Session, u: User, s: SearchConfig, results: list[dict]) -> dict:
@@ -81,6 +85,7 @@ def import_results(db: Session, u: User, s: SearchConfig, results: list[dict]) -
     for r in results:
         text = (r["title"] + "\n" + r["snippet"]).strip()
         if len(text) < 15: out["errors"] += 1; continue
+        if is_news_host(r["url"]): out["irrelevant"] += 1; continue      # article, not a listing: never stored
         _ingest(db, u, s, text, r["url"], out)
     out["items"] = sorted(out["items"], key=lambda x: -x["score"])[:10]
     return out

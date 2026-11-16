@@ -102,7 +102,7 @@ export function DiscoverPanel({ api, searches, onChanged }: { api: Api; searches
       <p>שתי דרכים חוקיות להכניס מודעות: חיפוש ברשת דרך מנוע חיפוש רשמי, או הדבקה של כמה מודעות יחד. כל אחת מנותחת ומדורגת.</p>
       <select value={sid} onChange={e => setSid(e.target.value)} aria-label="חיפוש">{searches.length === 0 && <option value="">צור קודם חיפוש</option>}{searches.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
       <h4>חיפוש ברשת</h4>
-      {web === null && <div className="note-l">חיפוש ברשת כבוי. כדי להפעיל: ב-Railway, בשירות השרת, הוסף BRAVE_API_KEY (מפתח חינמי ב-brave.com/search/api) או TAVILY_API_KEY.</div>}
+      {web === null && <div className="note-l">חיפוש ברשת כבוי. כדי להפעיל: ב-Railway, בשירות השרת, הוסף TAVILY_API_KEY (חינם, בלי כרטיס אשראי, ב-app.tavily.com).</div>}
       <div className="row"><input value={q} maxLength={200} placeholder="אופציונלי: מה לחפש? אם ריק, נבנה מהחיפוש שבחרת" onChange={e => setQ(e.target.value)} /><button onClick={web_} disabled={busy || !sid || !web}>{busy ? "מחפש..." : "חפש ברשת"}</button></div>
       <h4>הדבקה מרובה</h4>
       <textarea rows={4} value={bulk} onChange={e => setBulk(e.target.value)} placeholder={"הדבק כמה מודעות. הפרד ביניהן בשורה של --- או בשתי שורות ריקות."} />
@@ -110,7 +110,7 @@ export function DiscoverPanel({ api, searches, onChanged }: { api: Api; searches
       {err && <div className="err">{err}</div>}
       {res && (
         <div className="found">
-          <p>{res.results_found != null ? `נמצאו ${res.results_found} תוצאות. ` : `נותחו ${res.parsed} מודעות. `}התאמות חדשות: <b>{res.new}</b> · נפסלו: {res.rejected} · כבר קיימות: {res.duplicates}{res.errors ? ` · שגיאות: ${res.errors}` : ""}</p>
+          <p>{res.results_found != null ? `נמצאו ${res.results_found} תוצאות. ` : `נותחו ${res.parsed} מודעות. `}התאמות חדשות: <b>{res.new}</b> · נפסלו: {res.rejected} · כבר קיימות: {res.duplicates}{res.irrelevant ? ` · כתבות שסוננו: ${res.irrelevant}` : ""}{res.errors ? ` · שגיאות: ${res.errors}` : ""}</p>
           {res.items?.map((i: any) => { const ph = i.contact?.phones?.[0]; return <div className="found-row" key={i.id}><span className="score" style={{ "--p": i.score } as any}>{i.score}</span>
             <span className="fr-main"><b>{i.title || i.location || "?"}</b><span className="faint">{i.location || "?"}{i.price ? ` · ${Math.round(i.price).toLocaleString()}` : ""}{ph ? ` · ${ph.display}` : ""}</span></span>
             <span className="fr-act">

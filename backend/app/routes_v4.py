@@ -41,6 +41,7 @@ def sources_apply(b: ApplyIn, u: User = Depends(current_user), db: Session = Dep
     added, skipped = [], []
     for sg in feeds.suggest(_params(s)):
         if sg.get("needs_input") or (b.ids is not None and sg["id"] not in b.ids): continue
+        if sg.get("noise") and b.ids is None: skipped.append({"id": sg["id"], "reason": "news/discussion feed, not listings (add explicitly if you want it)"}); continue
         if sg["url"] in have: skipped.append({"id": sg["id"], "reason": "already added"}); continue
         if count >= MAX_SOURCES: skipped.append({"id": sg["id"], "reason": "source limit reached"}); continue
         try: url = scout.check_url(sg["url"])
