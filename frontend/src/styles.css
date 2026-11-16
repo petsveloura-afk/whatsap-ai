@@ -141,3 +141,14 @@ pre{padding:.8rem;overflow:auto;line-height:1.55}
   .quick button{flex:1 1 100%;text-align:start}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* ---- discovery panel ---- */
+.discover h4{margin:1rem 0 .3rem;font-size:.98rem}
+.row{display:flex;gap:.4rem;align-items:center}.row input{flex:1;margin:0}.row button{margin:0}
+.note-l{margin:.3rem 0;padding:.55rem .8rem;border-radius:10px;background:var(--warn-soft);color:var(--warn);font-size:.9rem}
+.found{margin-top:.9rem;padding-top:.7rem;border-top:1px solid var(--line)}
+.found-row{display:flex;align-items:center;gap:.6rem;padding:.35rem 0;border-bottom:1px solid var(--line)}
+.found-row .score{inline-size:2.6rem;block-size:2.6rem;font-size:.85rem;margin:0}
+.found-row a{margin-inline-start:auto}
+.faint{color:var(--faint);font-size:.88rem}
+@media (max-width:640px){.row{flex-wrap:wrap}.row button{width:100%}}

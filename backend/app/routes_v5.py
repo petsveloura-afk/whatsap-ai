@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from . import agent, flags
+from . import agent, discovery, flags
 from .db import Base, engine, get_db
 from .main import current_user
 from . import main as _m
@@ -26,7 +26,7 @@ def _live(db: Session) -> bool:
 def status(u: User = Depends(current_user), db: Session = Depends(get_db)):
     c = agent.cfg()
     return {"mode": "agent" if _live(db) else "rules", "key_configured": c is not None, "flag_on": flags.load(db)["llm_extraction"],
-            "provider": c["provider"] if c else None, "model": c["model"] if c else None,
+            "web_search": discovery.provider(), "provider": c["provider"] if c else None, "model": c["model"] if c else None,
             "memories": len(db.scalars(select(AgentMemory.id).where(AgentMemory.user_id == u.id)).all())}
 
 
@@ -39,14 +39,15 @@ def chat(b: ChatIn, u: User = Depends(current_user), db: Session = Depends(get_d
     if not _m.limiter.allow("agent:" + u.id, CHAT_LIMIT, CHAT_WINDOW): raise HTTPException(429, "יותר מדי הודעות לשעה האחרונה, נסה שוב מאוחר יותר")
     msg = b.message.strip()
     if not msg: raise HTTPException(422, "Empty message")
-    res = None
+    res, why = None, None
     if _live(db):
         try: res = agent.run(db, u, msg)
         except agent.AgentUnavailable as e:
-            log.warning("agent fell back to rules: %s", e); db.rollback()
+            log.warning("agent fell back to rules: %s", e); db.rollback(); why = str(e)[:300]
     if res is None:
         res = agent.offline(db, u, msg)
         if agent.configured() and not flags.load(db)["llm_extraction"]: res["hint"] = "flag_off"
+        if why: res["error"] = why   # shown in the UI so a provider problem is never silent
     agent.save_turn(db, u, msg, res["reply"], res.get("actions", []))
     agent.rollup(db, u)
     return res
@@ -91,3 +92,36 @@ def memory_del(mid: str, u: User = Depends(current_user), db: Session = Depends(
 def memory_clear(u: User = Depends(current_user), db: Session = Depends(get_db)):
     for m in db.scalars(select(AgentMemory).where(AgentMemory.user_id == u.id)): db.delete(m)
     db.commit()
+
+
+# ---- discovery: web search through an official API, and bulk paste ----
+class DiscoverIn(BaseModel):
+    search_id: str
+    query: str | None = Field(None, max_length=200)
+    limit: int = Field(10, ge=1, le=15)
+
+
+@router.post("/api/agent/discover")
+def discover(b: DiscoverIn, u: User = Depends(current_user), db: Session = Depends(get_db)):
+    s = _m._own_search(db, u, b.search_id)
+    if not discovery.provider(): raise HTTPException(503, "חיפוש ברשת לא מוגדר: הוסף BRAVE_API_KEY או TAVILY_API_KEY בשרת")
+    if not s.active: raise HTTPException(409, "Search is paused")
+    if not _m.limiter.allow("web:" + u.id, 20, 3600): raise HTTPException(429, "מכסת חיפושי רשת לשעה הסתיימה")
+    from . import feeds
+    q = b.query or feeds.build_query({"name": s.name, "category": s.category, "location": s.location, "required_keywords": s.required_keywords or []})
+    try: results = discovery.search(q, b.limit)
+    except RuntimeError as e: raise HTTPException(502, str(e)[:200])
+    return {"query": q, "results_found": len(results), **discovery.import_results(db, u, s, results)}
+
+
+class BulkIn(BaseModel):
+    search_id: str
+    text: str = Field(min_length=15, max_length=60000)
+
+
+@router.post("/api/listings/ingest-bulk")
+def ingest_bulk(b: BulkIn, u: User = Depends(current_user), db: Session = Depends(get_db)):
+    s = _m._own_search(db, u, b.search_id)
+    if not s.active: raise HTTPException(409, "Search is paused")
+    if not _m.limiter.allow("bulk:" + u.id, 20, 3600): raise HTTPException(429, "Too many bulk imports")
+    return discovery.ingest_many(db, u, s, b.text)

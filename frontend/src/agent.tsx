@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 type Api = (path: string, o?: any) => Promise<any>;
-type Msg = { role: "user" | "assistant"; content: string; actions?: { tool: string; summary: string }[]; mode?: string };
+type Msg = { role: "user" | "assistant"; content: string; actions?: { tool: string; summary: string }[]; mode?: string; error?: string };
 
 const QUICK = [
   "מה ההזדמנויות הכי טובות עכשיו?",
@@ -29,7 +29,7 @@ export function AgentPanel({ api, onChanged }: { api: Api; onChanged?: () => voi
     setErr(""); setText(""); setBusy(true); setMsgs(x => [...x, { role: "user", content: m }]);
     try {
       const r = await api("/api/agent/chat", { method: "POST", body: { message: m } });
-      setMsgs(x => [...x, { role: "assistant", content: r.reply, actions: r.actions, mode: r.mode }]);
+      setMsgs(x => [...x, { role: "assistant", content: r.reply, actions: r.actions, mode: r.mode, error: r.error }]);
       if (r.actions?.length) { onChanged?.(); if (mem) loadMem(); }
       loadStatus();
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
@@ -55,6 +55,7 @@ export function AgentPanel({ api, onChanged }: { api: Api; onChanged?: () => voi
         {msgs.map((m, i) => (
           <div key={i} className={"msg " + (m.role === "user" ? "me" : "bot")}>
             <div className="bubble">{m.content}</div>
+            {m.error && <div className="note">המודל לא ענה ולכן קיבלת תשובה בסיסית. סיבה: {m.error}</div>}
             {m.actions && m.actions.length > 0 && <div className="acts">{m.actions.map((a, j) => <span key={j} className="chip">✓ {a.summary}</span>)}</div>}
           </div>
         ))}
@@ -79,6 +80,39 @@ export function AgentPanel({ api, onChanged }: { api: Api; onChanged?: () => voi
           {mem.length === 0 && <div className="empty">עדיין אין זיכרונות.</div>}
           {mem.map(m => <div className="mem-row" key={m.id}><span className="kind">{({ fact: "עובדה", preference: "העדפה", goal: "יעד", summary: "סיכום" } as any)[m.kind] || m.kind}</span><span>{m.text}</span><button className="ghost sm" onClick={() => delMem(m.id)} aria-label="מחק">מחק</button></div>)}
           <div className="composer"><input value={newMem} maxLength={500} placeholder="הוסף משהו שחשוב לזכור, למשל: מעדיף קומה גבוהה" onChange={e => setNewMem(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && newMem.trim().length > 2) addMem(); }} /><button className="ghost" onClick={addMem} disabled={newMem.trim().length < 3}>הוסף</button></div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Discovery: web search through an official search API (results are title + snippet + link, scored like any listing)
+ *  and bulk paste of many listings at once. Talks to /api/agent/discover and /api/listings/ingest-bulk. */
+export function DiscoverPanel({ api, searches, onChanged }: { api: Api; searches: any[]; onChanged?: () => void }) {
+  const [sid, setSid] = useState(""), [q, setQ] = useState(""), [bulk, setBulk] = useState(""), [res, setRes] = useState<any>(null);
+  const [busy, setBusy] = useState(false), [err, setErr] = useState(""), [web, setWeb] = useState<string | null | undefined>(undefined);
+  useEffect(() => { api("/api/agent/status").then((s: any) => setWeb(s.web_search)).catch(() => setWeb(null)); }, []);
+  useEffect(() => { if (!sid && searches[0]) setSid(searches[0].id); }, [searches]);
+  const run = async (fn: () => Promise<any>) => { try { setErr(""); setBusy(true); setRes(await fn()); onChanged?.(); } catch (e: any) { setErr(e.message); } finally { setBusy(false); } };
+  const web_ = () => run(() => api("/api/agent/discover", { method: "POST", body: { search_id: sid, query: q.trim() || null, limit: 10 } }));
+  const bulk_ = () => run(() => api("/api/listings/ingest-bulk", { method: "POST", body: { search_id: sid, text: bulk } }));
+  return (
+    <section className="card discover" aria-label="גילוי הזדמנויות">
+      <h3>הבא הזדמנויות</h3>
+      <p>שתי דרכים חוקיות להכניס מודעות: חיפוש ברשת דרך מנוע חיפוש רשמי, או הדבקה של כמה מודעות יחד. כל אחת מנותחת ומדורגת.</p>
+      <select value={sid} onChange={e => setSid(e.target.value)} aria-label="חיפוש">{searches.length === 0 && <option value="">צור קודם חיפוש</option>}{searches.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+      <h4>חיפוש ברשת</h4>
+      {web === null && <div className="note-l">חיפוש ברשת כבוי. כדי להפעיל: ב-Railway, בשירות השרת, הוסף BRAVE_API_KEY (מפתח חינמי ב-brave.com/search/api) או TAVILY_API_KEY.</div>}
+      <div className="row"><input value={q} maxLength={200} placeholder="אופציונלי: מה לחפש? אם ריק, נבנה מהחיפוש שבחרת" onChange={e => setQ(e.target.value)} /><button onClick={web_} disabled={busy || !sid || !web}>{busy ? "מחפש..." : "חפש ברשת"}</button></div>
+      <h4>הדבקה מרובה</h4>
+      <textarea rows={4} value={bulk} onChange={e => setBulk(e.target.value)} placeholder={"הדבק כמה מודעות. הפרד ביניהן בשורה של --- או בשתי שורות ריקות."} />
+      <button onClick={bulk_} disabled={busy || !sid || bulk.trim().length < 15}>נתח את כולן</button>
+      {err && <div className="err">{err}</div>}
+      {res && (
+        <div className="found">
+          <p>{res.results_found != null ? `נמצאו ${res.results_found} תוצאות. ` : `נותחו ${res.parsed} מודעות. `}התאמות חדשות: <b>{res.new}</b> · נפסלו: {res.rejected} · כבר קיימות: {res.duplicates}{res.errors ? ` · שגיאות: ${res.errors}` : ""}</p>
+          {res.items?.map((i: any) => <div className="found-row" key={i.id}><span className="score" style={{ "--p": i.score } as any}>{i.score}</span><span>{i.location || "?"}{i.price ? ` · ${Math.round(i.price).toLocaleString()}` : ""}</span>{i.url && <a href={i.url} target="_blank" rel="noopener noreferrer nofollow">פתח מקור</a>}</div>)}
+          {res.results_found != null && <p className="faint">תקצירי חיפוש חלקיים, לכן ציון נמוך לא תמיד אומר שהמודעה גרועה. פתח את המקור לפרטים.</p>}
         </div>
       )}
     </section>

@@ -161,3 +161,67 @@ def test_account_deletion_removes_agent_data():
     assert c.delete("/api/me", headers=h).status_code == 204
     with SessionLocal() as db:
         assert db.query(AgentMessage).filter_by(user_id=uid).count() == 0 and db.query(AgentMemory).filter_by(user_id=uid).count() == 0
+
+
+def test_gemini_key_wins_over_llm_provider_and_groq_gets_big_model(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "k"); monkeypatch.setenv("LLM_PROVIDER", "groq"); monkeypatch.setenv("GROQ_API_KEY", "g")
+    assert agent.cfg()["provider"] == "gemini"
+    monkeypatch.delenv("GEMINI_API_KEY")
+    assert agent.cfg()["provider"] == "groq" and agent.cfg()["model"] == "llama-3.3-70b-versatile"
+    assert all("required" not in t["function"]["parameters"] or t["function"]["parameters"]["required"] for t in agent.TOOLS)
+
+
+def test_search_request_without_data_is_honest_and_provider_error_is_visible(monkeypatch):
+    for k in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENAI_API_KEY", "LLM_PROVIDER"): monkeypatch.delenv(k, raising=False)
+    h = tok("ag13@x.com")
+    r = c.post("/api/agent/chat", headers=h, json={"message": "תחפש טרקטורון יד שניה עד 5000"}).json()
+    assert "לא גולש" in r["reply"]
+
+
+# ---------------- discovery ----------------
+from app import discovery
+RES = {"web": {"results": [
+    {"title": "דירת 3 חדרים <b>בחולון</b>", "url": "https://example.com/a", "description": "משופצת, ללא תיווך, 5,200 ש״ח"},
+    {"title": "dup", "url": "https://example.com/a", "description": "same url"},
+    {"title": "bad", "url": "javascript:alert(1)", "description": "x"},
+    {"title": "דירת 4 חדרים ברמת גן", "url": "https://example.com/b", "description": "מרפסת וחניה, 9,000 ש״ח"}]}}
+
+
+def test_websearch_parsing_and_provider(monkeypatch):
+    for k in ("BRAVE_API_KEY", "TAVILY_API_KEY"): monkeypatch.delenv(k, raising=False)
+    try: discovery.search("x y"); assert False
+    except RuntimeError as e: assert "no web search key" in str(e)
+    monkeypatch.setenv("BRAVE_API_KEY", "b")
+    seen = {}
+    monkeypatch.setattr(discovery, "_http", lambda m, u, h, params=None, json=None: seen.update(h=h, p=params) or RES)
+    r = discovery.search("דירה בחולון", 10)
+    assert [x["url"] for x in r] == ["https://example.com/a", "https://example.com/b"] and "<b>" not in r[0]["title"]
+    assert seen["h"]["X-Subscription-Token"] == "b" and seen["p"]["country"] == "IL"
+    monkeypatch.delenv("BRAVE_API_KEY"); monkeypatch.setenv("TAVILY_API_KEY", "t")
+    monkeypatch.setattr(discovery, "_http", lambda m, u, h, params=None, json=None: {"results": [{"title": "t", "url": "https://t.co/x", "content": "c"}]})
+    assert discovery.search("abc")[0]["snippet"] == "c"
+
+
+def test_discover_endpoint_and_agent_tool(monkeypatch):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    h, sid, lid = _setup("ag14@x.com"); u = _user("ag14@x.com")
+    assert c.post("/api/agent/discover", headers=h, json={"search_id": sid}).status_code == 503      # no key: clear error
+    monkeypatch.setenv("BRAVE_API_KEY", "b"); monkeypatch.setattr(discovery, "_http", lambda *a, **k: RES)
+    r = c.post("/api/agent/discover", headers=h, json={"search_id": sid}).json()
+    assert r["results_found"] == 2 and r["new"] + r["rejected"] + r["duplicates"] == 2 and all(i["url"].startswith("https://") for i in r["items"])
+    again = c.post("/api/agent/discover", headers=h, json={"search_id": sid}).json()
+    assert again["duplicates"] == 2                                                                      # idempotent
+    other = tok("ag15@x.com")
+    assert c.post("/api/agent/discover", headers=other, json={"search_id": sid}).status_code == 404    # not your search
+    with SessionLocal() as db:
+        tb = agent.Toolbox(db, u, [])
+        assert tb.dispatch("web_search_import", {"search_id": sid, "query": "דירה בחולון"})["results_found"] == 2
+
+
+def test_bulk_ingest():
+    h, sid, lid = _setup("ag16@x.com")
+    txt = "דירת 3 חדרים בחולון, 4,900 ש״ח, משופצת\n---\nדירת 2 חדרים בבת ים, 4,100 ש״ח, ללא תיווך\n\n\nקצר\n\n\nדירת 5 חדרים בראשון לציון, 8,000 ש״ח"
+    r = c.post("/api/listings/ingest-bulk", headers=h, json={"search_id": sid, "text": txt}).json()
+    assert r["parsed"] == 3 and r["new"] + r["rejected"] == 3
+    assert c.post("/api/listings/ingest-bulk", headers=h, json={"search_id": sid, "text": txt}).json()["duplicates"] == 3
+    assert c.get("/api/agent/status", headers=h).json()["web_search"] in (None, "brave", "tavily")

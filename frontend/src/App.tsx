@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Wizard, SourcesPanel, MemoryPanel, Notifications, AdminPanel } from "./panels";
 import { GrowthPanel } from "./growth";
 import { AssistantPanel } from "./assistant";
-import { AgentPanel } from "./agent";
+import { AgentPanel, DiscoverPanel } from "./agent";
 const API: string = (import.meta as any).env.VITE_API_URL || "";
 let access = "";
 async function refresh(): Promise<boolean> {
@@ -71,6 +71,7 @@ function Dash({ user, onLogout }: any) {
     <div className="grid stats">{[["סה״כ הזדמנויות", ov.total_listings], ["התאמות גבוהות", ov.high_quality], ["סוננו", ov.filtered_out], ["חיפושים פעילים", ov.active_searches]].map(([k, v]: any) => <div className="card stat" key={k}><span>{k}</span><b>{v ?? "-"}</b></div>)}</div>
     <div className="card"><h3>סוכנים (טלמטריה חיה)</h3><table><tbody>{agents.map(a => <tr key={a.name}><td>{a.name}</td><td>{a.status}</td><td>{a.processed} רשומות</td><td>{a.errors} שגיאות</td><td>{a.avg_ms ?? "-"}ms</td></tr>)}</tbody></table></div>
     <AgentPanel api={api} onChanged={load} />
+    <DiscoverPanel api={api} searches={searches} onChanged={load} />
     <Notifications api={api} />
     <Wizard api={api} onCreated={load} />
     <AssistantPanel api={api} searches={searches} />

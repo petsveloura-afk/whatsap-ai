@@ -76,3 +76,9 @@ Public API keys, signed webhooks, referrals, share links, market intelligence ("
 - **Safety**: listing text and memory are treated as untrusted data in the system prompt; 40 messages/user/hour; 6 tool rounds max per message.
 - New migration `f4b5c6d7e8a9` (runs automatically on deploy). Tests: `backend/tests/test_agent.py` (no network).
 - **Design**: `frontend/src/styles.css` rewritten (same class names); the previous file is kept as `styles.v3.2.css` (not imported). New: `frontend/src/agent.tsx`.
+
+### v3.3 discovery
+- `POST /api/agent/discover {search_id, query?, limit}`: web search via Brave/Tavily (`BRAVE_API_KEY` or `TAVILY_API_KEY`), results scored by the normal pipeline; 20/hour/user; 503 when no key. We store only title, snippet and link and never fetch result pages.
+- `POST /api/listings/ingest-bulk {search_id, text}`: up to 30 pasted listings separated by `---` or blank lines.
+- Agent tools `web_search_import` and `ingest_many` use the same code. `GET /api/agent/status` now reports `web_search`.
+- Agent provider: a `GEMINI_API_KEY` wins over `LLM_PROVIDER`; set `AGENT_PROVIDER=groq` to force otherwise. Groq defaults to `llama-3.3-70b-versatile` for the agent.
