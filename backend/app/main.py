@@ -433,3 +433,8 @@ try:   # v3.2 additive routes; a failure here must never take the core API down
     app.include_router(routes_v4.router)
 except Exception:
     import logging as _lg; _lg.getLogger("sniper").exception("routes_v4 not loaded (core API unaffected)")
+try:   # v3.3 agent routes (additive); a failure here must never take the core API down
+    from . import routes_v5
+    app.include_router(routes_v5.router)
+except Exception:
+    import logging as _lg; _lg.getLogger("sniper").exception("routes_v5 not loaded (core API unaffected)")

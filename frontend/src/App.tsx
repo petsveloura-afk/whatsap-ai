@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Wizard, SourcesPanel, MemoryPanel, Notifications, AdminPanel } from "./panels";
 import { GrowthPanel } from "./growth";
 import { AssistantPanel } from "./assistant";
+import { AgentPanel } from "./agent";
 const API: string = (import.meta as any).env.VITE_API_URL || "";
 let access = "";
 async function refresh(): Promise<boolean> {
@@ -24,10 +25,10 @@ function Landing({ onAuth }: any) {
   const [mode, setMode] = useState("login"), [email, setEmail] = useState(""), [pw, setPw] = useState(""), [msg, setMsg] = useState("");
   const go = async () => { try { setMsg(""); if (mode === "register") await api("/api/auth/register", { method: "POST", body: { email, password: pw } }); onAuth(await login(email, pw)); } catch (e: any) { setMsg(e.message); } };
   const forgot = async () => { try { await api("/api/auth/forgot-password", { method: "POST", body: { email } }); setMsg("אם החשבון קיים, נשלח מייל איפוס"); } catch (e: any) { setMsg(e.message); } };
-  return <div className="wrap"><h1>אל תחפש את ההזדמנות הבאה שלך. תן ל-AI למצוא אותה.</h1>
-    <p>Smart Sniper AI סורק מקורות מידע מורשים, מנתח מודעות בזמן אמת ומציג לך את ההזדמנויות שבאמת מתאימות למה שאתה מחפש.</p>
-    <div className="grid"><div className="card"><b>1. מגדירים</b><br />מה מחפשים, תקציב ואזור.</div><div className="card"><b>2. המערכת מנתחת</b><br />חילוץ, סינון כפילויות וציון התאמה.</div><div className="card"><b>3. מקבלים בזמן אמת</b><br />התראות דרך האתר, Telegram ו-WhatsApp.</div></div>
-    <div className="card"><h3>{mode === "login" ? "התחברות" : "הרשמה"}</h3>
+  return <div className="wrap landing"><div className="hero"><h1>אל תחפש את ההזדמנות הבאה שלך. תן ל-AI למצוא אותה.</h1>
+    <p>Smart Sniper AI סורק מקורות מידע מורשים, מנתח מודעות בזמן אמת ומציג לך את ההזדמנויות שבאמת מתאימות למה שאתה מחפש.</p></div>
+    <div className="grid steps"><div className="card"><b>1. מגדירים</b><br />מה מחפשים, תקציב ואזור.</div><div className="card"><b>2. המערכת מנתחת</b><br />חילוץ, סינון כפילויות וציון התאמה.</div><div className="card"><b>3. מקבלים בזמן אמת</b><br />התראות דרך האתר, Telegram ו-WhatsApp.</div></div>
+    <div className="card auth"><h3>{mode === "login" ? "התחברות" : "הרשמה"}</h3>
       <input placeholder="אימייל" value={email} onChange={e => setEmail(e.target.value)} /><input type="password" placeholder="סיסמה (10+ תווים)" value={pw} onChange={e => setPw(e.target.value)} />
       <button onClick={go}>{mode === "login" ? "כניסה" : "מתחילים למצוא הזדמנויות"}</button>
       <button className="ghost" onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "אין חשבון? הרשמה" : "יש חשבון? כניסה"}</button>
@@ -65,10 +66,11 @@ function Dash({ user, onLogout }: any) {
   const act = async (fn: () => Promise<any>) => { try { setMsg(""); await fn(); await load(); } catch (e: any) { setMsg(e.message); } };
   const create = () => act(() => api("/api/searches", { method: "POST", body: { name: f.name, category: f.category, location: f.location || null, max_price: f.max_price ? Number(f.max_price) : null } }));
   const ingest = () => act(async () => { const r = await api("/api/listings/ingest", { method: "POST", body: { search_id: sid, text } }); setMsg(`נקלט: ${r.status}, ציון ${r.score}`); setText(""); });
-  return <div className="wrap"><h1>Smart Sniper AI</h1><div>{user.email} · חבילה: {sub.plan} · <span className={live ? "ok" : "err"}>{live ? "חי" : "לא מחובר"}</span> <button className="ghost" onClick={async () => { try { await api("/api/auth/logout", { method: "POST", body: { refresh_token: sessionStorage.getItem("rt") } }); } catch {} sessionStorage.removeItem("rt"); access = ""; onLogout(); }}>יציאה</button></div>
+  return <div className="wrap"><header className="top"><h1 className="brand">Smart Sniper AI</h1><div className="who">{user.email} · חבילה: {sub.plan} · <span className={live ? "ok" : "err"}>{live ? "חי" : "לא מחובר"}</span> <button className="ghost" onClick={async () => { try { await api("/api/auth/logout", { method: "POST", body: { refresh_token: sessionStorage.getItem("rt") } }); } catch {} sessionStorage.removeItem("rt"); access = ""; onLogout(); }}>יציאה</button></div></header>
     <div className="err">{msg}</div>
-    <div className="grid">{[["סה״כ הזדמנויות", ov.total_listings], ["התאמות גבוהות", ov.high_quality], ["סוננו", ov.filtered_out], ["חיפושים פעילים", ov.active_searches]].map(([k, v]: any) => <div className="card" key={k}>{k}<div className="score">{v ?? "-"}</div></div>)}</div>
+    <div className="grid stats">{[["סה״כ הזדמנויות", ov.total_listings], ["התאמות גבוהות", ov.high_quality], ["סוננו", ov.filtered_out], ["חיפושים פעילים", ov.active_searches]].map(([k, v]: any) => <div className="card stat" key={k}><span>{k}</span><b>{v ?? "-"}</b></div>)}</div>
     <div className="card"><h3>סוכנים (טלמטריה חיה)</h3><table><tbody>{agents.map(a => <tr key={a.name}><td>{a.name}</td><td>{a.status}</td><td>{a.processed} רשומות</td><td>{a.errors} שגיאות</td><td>{a.avg_ms ?? "-"}ms</td></tr>)}</tbody></table></div>
+    <AgentPanel api={api} onChanged={load} />
     <Notifications api={api} />
     <Wizard api={api} onCreated={load} />
     <AssistantPanel api={api} searches={searches} />
@@ -76,7 +78,7 @@ function Dash({ user, onLogout }: any) {
       <input placeholder="מיקום" value={f.location} onChange={e => setF({ ...f, location: e.target.value })} /><input placeholder="מחיר מקסימלי" value={f.max_price} onChange={e => setF({ ...f, max_price: e.target.value })} /><button onClick={create}>צור</button>
       {searches.map(s => <div key={s.id}>{s.name} ({s.active ? "פעיל" : "מושהה"}) <button className="ghost" onClick={() => act(() => api(`/api/searches/${s.id}/${s.active ? "pause" : "resume"}`, { method: "POST" }))}>{s.active ? "השהה" : "המשך"}</button> <button className="ghost" onClick={() => act(() => api(`/api/searches/${s.id}`, { method: "DELETE" }))}>מחק</button></div>)}</div>
     <div className="card"><h3>הדבק מודעה לניתוח</h3><select value={sid} onChange={e => setSid(e.target.value)}>{searches.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select><br /><textarea rows={3} style={{ width: "100%" }} value={text} onChange={e => setText(e.target.value)} placeholder="דירת 3 חדרים בחולון, משופצת, 5,200 ש״ח" /><button onClick={ingest} disabled={!sid || text.length < 5}>נתח</button></div>
-    <h3>הזדמנויות</h3>{listings.map(l => <div className="card" key={l.id}><span className="score">{l.score}%</span> {l.extracted.location || "?"} · {l.extracted.rooms ?? "?"} חד׳ · {l.extracted.price ?? "?"} {l.extracted.currency || ""} · {l.status}
+    <h3>הזדמנויות</h3>{listings.map(l => <div className="card listing" key={l.id}><span className="score" style={{ "--p": l.score } as any} aria-label={`התאמה ${l.score}%`}>{l.score}</span> {l.extracted.location || "?"} · {l.extracted.rooms ?? "?"} חד׳ · {l.extracted.price ?? "?"} {l.extracted.currency || ""} · {l.status}
       {l.risks.map((r: string) => <div className="risk" key={r}>⚠ {r}</div>)}
       {["save:שמור", "reject:דחה", "contacted:יצרתי קשר"].map(x => { const [k, v] = x.split(":"); return <button className="ghost" key={k} onClick={() => act(() => api(`/api/listings/${l.id}/${k}`, { method: "POST" }))}>{v}</button>; })}</div>)}
     <SourcesPanel api={api} searches={searches} />

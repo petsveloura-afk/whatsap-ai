@@ -68,3 +68,11 @@ Public API keys, signed webhooks, referrals, share links, market intelligence ("
 - New endpoints (additive, loaded in a try/except so the core API can't be affected): `GET /api/sources/suggest?search_id=`, `POST /api/sources/suggest/apply`, `POST /api/assistant`, `GET /api/listings/{id}/explain`, `GET /api/searches/{id}/report`.
 - Free AI: `llm.py` supports Groq / Gemini / OpenRouter / Ollama free tiers through the OpenAI-compatible protocol (see `.env.example`). Off unless you add a free key AND enable the admin flag; the assistant falls back to local rules.
 - Source discovery stays within Scout's guards (SSRF, robots.txt, size/time limits). No scraping of sites that forbid it.
+
+## v3.3 - the agent (additive) + new design
+- **Agent brain**: `POST /api/agent/chat`. A tool-calling loop (Gemini via its OpenAI-compatible endpoint, or any provider already set in `LLM_PROVIDER`). Tools: list/find/inspect listings, search report, create/update/pause searches, save/reject/contact a listing, notes, analyse pasted text, discover/add sources, remember/recall/forget. All tools are scoped to the logged-in user; there is **no delete tool**; every write is reported back to the UI.
+- **Memory**: long-term facts/preferences/goals/summaries (`agent_memory`) + short chat history (`agent_messages`, rolled up into a summary when it grows). `GET/POST/DELETE /api/agent/memory`, `GET/DELETE /api/agent/history`. Covered by `/api/me/export/full` and `DELETE /api/me`. Respects the existing personalization switch.
+- **Switch**: needs `GEMINI_API_KEY` (or another provider key) AND the admin flag `llm_extraction`. Otherwise the same chat works on local rules, so nothing breaks. `GET /api/agent/status` shows which mode is active.
+- **Safety**: listing text and memory are treated as untrusted data in the system prompt; 40 messages/user/hour; 6 tool rounds max per message.
+- New migration `f4b5c6d7e8a9` (runs automatically on deploy). Tests: `backend/tests/test_agent.py` (no network).
+- **Design**: `frontend/src/styles.css` rewritten (same class names); the previous file is kept as `styles.v3.2.css` (not imported). New: `frontend/src/agent.tsx`.
