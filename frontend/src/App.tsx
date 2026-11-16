@@ -60,7 +60,7 @@ function Dash({ user, onLogout }: any) {
   const load = useCallback(async () => {
     try {
       const [s, l, o, a, b] = await Promise.all([api("/api/searches"), api("/api/listings"), api("/api/dashboard/overview"), api("/api/agents"), api("/api/billing/subscription")]);
-      setSearches(s); setListings(l); setOv(o); setAgents(a); setSub(b); if (!sid && s[0]) setSid(s[0].id);
+      setSearches(s); setListings(l); setOv(o); setAgents(a); setSub(b); setSid((cur: string) => s.some((x: any) => x.id === cur) ? cur : (s[0]?.id || ""));
       if (isAdmin) setUsers(await api("/api/admin/users"));
     } catch (e: any) { setMsg(e.message); }
   }, [sid, isAdmin]);

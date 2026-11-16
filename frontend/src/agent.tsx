@@ -92,7 +92,7 @@ export function DiscoverPanel({ api, searches, onChanged }: { api: Api; searches
   const [sid, setSid] = useState(""), [q, setQ] = useState(""), [bulk, setBulk] = useState(""), [res, setRes] = useState<any>(null);
   const [busy, setBusy] = useState(false), [err, setErr] = useState(""), [web, setWeb] = useState<string | null | undefined>(undefined);
   useEffect(() => { api("/api/agent/status").then((s: any) => setWeb(s.web_search)).catch(() => setWeb(null)); }, []);
-  useEffect(() => { if (!sid && searches[0]) setSid(searches[0].id); }, [searches]);
+  useEffect(() => { if (!searches.some(s => s.id === sid)) setSid(searches[0]?.id || ""); }, [searches]);   // a deleted search must not stay selected
   const run = async (fn: () => Promise<any>) => { try { setErr(""); setBusy(true); setRes(await fn()); onChanged?.(); } catch (e: any) { setErr(e.message); } finally { setBusy(false); } };
   const web_ = () => run(() => api("/api/agent/discover", { method: "POST", body: { search_id: sid, query: q.trim() || null, limit: 10 } }));
   const bulk_ = () => run(() => api("/api/listings/ingest-bulk", { method: "POST", body: { search_id: sid, text: bulk } }));
