@@ -444,3 +444,8 @@ try:   # v3.3 agent routes (additive); a failure here must never take the core A
     app.include_router(routes_v5.router)
 except Exception:
     import logging as _lg; _lg.getLogger("sniper").exception("routes_v5 not loaded (core API unaffected)")
+try:   # v3.7 brains control room (additive)
+    from . import routes_v6
+    app.include_router(routes_v6.router)
+except Exception:
+    import logging as _lg; _lg.getLogger("sniper").exception("routes_v6 not loaded (core API unaffected)")

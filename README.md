@@ -88,3 +88,10 @@ Public API keys, signed webhooks, referrals, share links, market intelligence ("
 - Every opportunity now shows ways to reach the owner: call, WhatsApp (pre-filled message), e-mail, Telegram, and a link to the source ad, plus copy-details.
 - Backend: `app/contacts.py` extracts phones/e-mails/chat links from the ad text you already stored (no scraping); `GET /api/listings` keeps all old fields and adds title, summary, raw_text, contact, highlights, source_url, created_at. Web-discovery results also carry title and contact.
 - No existing panel, endpoint or table was removed.
+
+## v3.7 - Free brains (additive)
+- `app/brains.py`: one router for 13 free AI providers (Gemini, Groq, Cerebras, OpenRouter, Mistral, GitHub Models, SambaNova, NVIDIA, Hugging Face, Cloudflare, Ollama, custom OpenAI-compatible, OVH key-less) with **several keys per provider**, round-robin rotation, cooldowns (rate limit / daily quota / bad key / retired model) and automatic failover across keys, models and providers. The agent, the LLM extraction and the assistant polish all use it.
+- Free-only: OpenAI is never used unless `LLM_PROVIDER=openai` or `BRAINS_ALLOW_PAID=1`. Extraction is capped per day (`BRAINS_EXTRACT_DAILY`), cached, and skipped when the rules already found every field.
+- `app/discovery.py`: web search over Tavily, Serper, Brave, Exa, Jina, Google CSE and SearXNG with the same key pool; results are merged and de-duplicated.
+- `GET /api/admin/brains`, `POST /api/admin/brains/test` and the new **Admin > Brains** tab. `GET /api/agent/status` adds `brains` and `web_searches`. Keys are never returned.
+- Setup guide (Hebrew): `docs/FREE-BRAINS.md`. Tests: `backend/tests/test_brains.py` (no network).

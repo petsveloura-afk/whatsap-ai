@@ -4,7 +4,7 @@
 - **PayPal**: `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET`, `PAYPAL_WEBHOOK_ID`, `PAYPAL_PLAN_PRO`, `PAYPAL_PLAN_VIP`, `PAYPAL_BASE`. PayPal fees apply to your transactions.
 - **WhatsApp**: official Cloud API only (`WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_TEMPLATE`) with explicit user consent. QR pairing is not supported (unofficial, may violate terms).
 - **SMTP**: `SMTP_*` for password reset mail.
-- **OpenAI (optional, paid)**: `OPENAI_API_KEY` + admin toggle `llm_extraction`.
+- **AI models (free)**: see `docs/FREE-BRAINS.md` (Gemini, Groq, Cerebras, OpenRouter, ... with failover). OpenAI is paid and only used if you opt in with `LLM_PROVIDER=openai`.
 - **pgvector (optional)**: Postgres with the extension; `USE_PGVECTOR=1` before migrating, then the admin toggle `pgvector`; query with `GET /api/memory/similar?q=`.
 - **Redis (optional)**: `REDIS_URL`; used only to wake the worker.
 

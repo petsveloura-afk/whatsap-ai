@@ -215,8 +215,9 @@ def admin_roles(a: User = Depends(need(*ADMIN)), db: Session = Depends(get_db)):
     return {r: [p.permission for p in db.scalars(select(Permission).where(Permission.role == r))] for r in ROLE_PERMS}
 class FlagsIn(BaseModel): flags: dict[str, bool]
 def _caps(): 
-    from . import llm
-    return {"llm_configured": llm.configured(), "pgvector_env": os.environ.get("USE_PGVECTOR") == "1"}
+    from . import llm, brains, discovery
+    return {"llm_configured": llm.configured(), "pgvector_env": os.environ.get("USE_PGVECTOR") == "1",
+            "brains": brains.status()["active"], "web_search": discovery.providers()}
 @router.get("/api/admin/system-settings")
 def sys_get(a: User = Depends(need(*ADMIN)), db: Session = Depends(get_db)):
     return {"flags": flags.load(db, True), "capabilities": _caps()}

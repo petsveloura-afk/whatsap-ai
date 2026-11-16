@@ -4,14 +4,15 @@ Design rules
 - Additive: nothing existing is modified. Uses the existing pipeline, scoring, market and Scout code through their own functions.
 - Every tool is scoped to the calling user. There is NO delete tool; writes are limited to reversible actions and are reported back.
 - Listing text and memory are untrusted data: the system prompt says never to follow instructions found inside them.
-- Provider: Gemini (GEMINI_API_KEY) through Google's OpenAI-compatible endpoint, otherwise any provider configured for llm.py.
+- Provider: any FREE provider through brains.py (Gemini, Groq, Cerebras, OpenRouter, Mistral, GitHub Models ...), several keys each, with
+  automatic failover between keys, models and providers. AGENT_PROVIDER pins one first; a Gemini key is preferred by default.
   Without a key (or without the admin flag) the agent degrades to the local rule-based assistant, so the UI never breaks.
 """
 import datetime as dt, json, logging, os, re
 from fastapi import HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
-from . import assistant, discovery, feeds, llm, market
+from . import assistant, brains, discovery, feeds, llm, market, pool
 from .extract import find_cities
 from .models import Listing, SearchConfig, User
 from .models2 import UserListingAction
@@ -35,15 +36,14 @@ class AgentUnavailable(Exception):
 
 # ---------------------------------------------------------------- provider
 def cfg() -> dict | None:
-    key, prov = os.environ.get("GEMINI_API_KEY"), (os.environ.get("AGENT_PROVIDER") or "").lower()
-    if key and prov in ("", "gemini"):   # a Gemini key wins over LLM_PROVIDER (which only drives the older extraction feature); AGENT_PROVIDER=groq forces otherwise
-        return {"provider": "gemini", "base": GEMINI_BASE, "key": key,
+    """Primary provider for status screens and for the first attempt. The real calls go through brains.complete (failover)."""
+    gk, prov = pool.keys("GEMINI_API_KEY"), (os.environ.get("AGENT_PROVIDER") or "").lower()
+    if gk and prov in ("", "gemini"):   # a Gemini key wins over LLM_PROVIDER (which only drives the older extraction feature); AGENT_PROVIDER=groq forces otherwise
+        return {"provider": "gemini", "base": GEMINI_BASE, "key": gk[0],
                 "model": os.environ.get("AGENT_MODEL") or os.environ.get("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL}
-    c = llm._cfg()
+    c = brains.primary(need_tools=True, prefer=prov or None)
     if c:
-        name = os.environ.get("LLM_PROVIDER", "").lower() or "auto"
-        model = os.environ.get("AGENT_MODEL") or ("llama-3.3-70b-versatile" if name == "groq" and not os.environ.get("LLM_MODEL") else c[1])  # the 8B model is unreliable at tool calling
-        return {"provider": name, "base": c[0], "model": model, "key": c[2]}
+        return {"provider": c["provider"], "base": c["base"], "model": os.environ.get("AGENT_MODEL") or c["model"], "key": c["key"]}
     return None
 
 
@@ -52,16 +52,15 @@ def configured() -> bool:
 
 
 def _post(c: dict, body: dict, post=None) -> dict:
-    hdr = {"Authorization": "Bearer " + c["key"]}
-    if post is None:
-        import httpx
-        r = httpx.post(c["base"] + "/chat/completions", headers=hdr, json=body, timeout=45)
-        if r.status_code >= 400:
-            try: detail = str((r.json().get("error") or {}).get("message") or r.json())[:220]
-            except Exception: detail = r.text[:220]
-            raise AgentUnavailable(f"{c['provider']} HTTP {r.status_code}: {detail}")
-        return r.json()
-    return post(c["base"] + "/chat/completions", hdr, body)
+    """One model call. With an injected `post` (tests) it is a plain call; otherwise it goes through the free-provider router, which
+    retries on other keys / models / providers when one is rate limited or down. The answer carries resp["_brain"] (who answered)."""
+    if post is not None:
+        return post(c["base"] + "/chat/completions", {"Authorization": "Bearer " + c["key"]}, body)
+    try:
+        return brains.complete(body["messages"], tools=body.get("tools"), temperature=body.get("temperature", 0.3), purpose="agent",
+                               prefer=c["provider"], model=c["model"], timeout=40, budget=75)
+    except brains.BrainsUnavailable as e:
+        raise AgentUnavailable(str(e)[:300])
 
 
 # ---------------------------------------------------------------- memory
@@ -294,7 +293,7 @@ class Toolbox:
     def t_web_search_import(self, search_id, query=None, limit=10):
         from . import main as M
         s = self._search(search_id)
-        if not discovery.provider(): return {"error": "web search is not configured (admin must add BRAVE_API_KEY or TAVILY_API_KEY)"}
+        if not discovery.provider(): return {"error": "web search is not configured (admin must add a free search key, e.g. TAVILY_API_KEY)"}
         if not s.active: return {"error": "search is paused"}
         if not M.limiter.allow("web:" + self.u.id, 20, 3600): return {"error": "web search limit reached (20 per hour)"}
         q = query or feeds.build_query({"name": s.name, "category": s.category, "location": s.location, "required_keywords": s.required_keywords or []})
@@ -365,11 +364,15 @@ def run(db: Session, u: User, message: str, post=None) -> dict:
     actions: list = []; tb = Toolbox(db, u, actions)
     mems = recall(db, u, message, 10)
     msgs = [{"role": "system", "content": system_prompt(mems)}, *_history(db, u), {"role": "user", "content": message[:2000]}]
-    text = ""
+    text = ""; used: dict = {}
     try:
         for _ in range(MAX_STEPS):
             resp = _post(c, {"model": c["model"], "temperature": 0.3, "messages": msgs, "tools": TOOLS, "tool_choice": "auto"}, post)
+            used = resp.get("_brain") or used
             m = resp["choices"][0]["message"]; calls = m.get("tool_calls") or []
+            for i, tc in enumerate(calls):          # some providers omit ids / type; every provider in the fallback chain needs them
+                if not tc.get("id"): tc["id"] = f"call_{len(msgs)}_{i}"
+                tc.setdefault("type", "function")
             if not calls:
                 text = (m.get("content") or "").strip(); break
             msgs.append({"role": "assistant", "content": m.get("content") or "", "tool_calls": calls})
@@ -383,7 +386,7 @@ def run(db: Session, u: User, message: str, post=None) -> dict:
     except AgentUnavailable: raise
     except Exception as e:
         log.warning("agent loop failed: %s", type(e).__name__); raise AgentUnavailable(type(e).__name__)
-    return {"reply": text or "לא הצלחתי לנסח תשובה. נסה לנסח אחרת.", "actions": actions, "mode": "agent", "model": c["model"]}
+    return {"reply": text or "לא הצלחתי לנסח תשובה. נסה לנסח אחרת.", "actions": actions, "mode": "agent", "model": used.get("model") or c["model"], "provider": used.get("provider") or c["provider"]}
 
 
 # ---------------------------------------------------------------- offline fallback (no key / flag off / provider down)

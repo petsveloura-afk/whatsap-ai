@@ -73,14 +73,14 @@ export function AdminPanel({ api, role }: { api: Api; role: string }) {
   const isAdmin = role === "admin" || role === "super_admin";
   const load = useCallback(async () => {
     try {
-      const calls: Record<string, string> = { overview: "/api/admin/overview", jobs: "/api/admin/jobs", sources: "/api/admin/sources", audit: "/api/admin/audit-logs", events: "/api/agents/events", metrics: "/api/admin/metrics", settings: "/api/admin/system-settings" };
-      if (!(tab in calls) || (!isAdmin && ["audit", "settings", "metrics"].includes(tab))) return;
+      const calls: Record<string, string> = { overview: "/api/admin/overview", jobs: "/api/admin/jobs", sources: "/api/admin/sources", audit: "/api/admin/audit-logs", events: "/api/agents/events", metrics: "/api/admin/metrics", settings: "/api/admin/system-settings", brains: "/api/admin/brains" };
+      if (!(tab in calls) || (!isAdmin && ["audit", "settings", "metrics", "brains"].includes(tab))) return;
       setD({ ...d, [tab]: await api(calls[tab]) });
     } catch (e: any) { setMsg(e.message); }
   }, [tab]);
   useEffect(() => { load(); }, [tab]);
   const toggle = async (k: string, v: boolean) => { try { setMsg(""); setD({ ...d, settings: await api("/api/admin/system-settings", { method: "PATCH", body: { flags: { [k]: v } } }) }); } catch (e: any) { setMsg(e.message); } };
-  const tabs = [["overview", "סקירה"], ["jobs", "תורים"], ["sources", "מקורות"], ["events", "אירועי סוכנים"]].concat(isAdmin ? [["audit", "יומן ביקורת"], ["metrics", "מטריקות"], ["settings", "הגדרות"]] : []);
+  const tabs = [["overview", "סקירה"], ["jobs", "תורים"], ["sources", "מקורות"], ["events", "אירועי סוכנים"]].concat(isAdmin ? [["brains", "מוחות"], ["audit", "יומן ביקורת"], ["metrics", "מטריקות"], ["settings", "הגדרות"]] : []);
   const o = d.overview;
   return <div className="card"><h3>מרכז ניהול</h3>
     {tabs.map(([k, v]) => <button key={k} className={tab === k ? "" : "ghost"} onClick={() => setTab(k)}>{v}</button>)}
@@ -90,10 +90,37 @@ export function AdminPanel({ api, role }: { api: Api; role: string }) {
     {tab === "jobs" && <table><tbody>{(d.jobs || []).map((j: any) => <tr key={j.id}><td>{j.kind}</td><td>{j.status}</td><td>{j.attempts}</td><td>{j.last_error}</td><td>{j.status === "dead" && isAdmin && <button className="ghost" onClick={async () => { await api(`/api/admin/jobs/${j.id}/retry`, { method: "POST" }); load(); }}>נסה שוב</button>}</td></tr>)}</tbody></table>}
     {tab === "sources" && <table><tbody>{(d.sources || []).map((s: any) => <tr key={s.id}><td>{s.url}</td><td>{s.status}</td><td>{s.last_error}</td></tr>)}</tbody></table>}
     {tab === "events" && <table><tbody>{(d.events || []).map((e: any, i: number) => <tr key={i}><td>{e.agent}</td><td>{e.event}</td><td>{e.duration_ms ? Math.round(e.duration_ms) + "ms" : ""}</td><td>{e.detail}</td></tr>)}</tbody></table>}
+    {tab === "brains" && <BrainsView api={api} data={d.brains} reload={load} setMsg={setMsg} />}
     {tab === "audit" && <table><tbody>{(d.audit || []).map((a: any, i: number) => <tr key={i}><td>{a.at}</td><td>{a.action}</td><td>{a.target}</td></tr>)}</tbody></table>}
     {tab === "metrics" && d.metrics && <pre>{JSON.stringify(d.metrics, null, 2)}</pre>}
     {tab === "settings" && d.settings && <div>
-      {Object.entries(d.settings.flags).map(([k, v]: any) => <label key={k} style={{ display: "block" }}><input type="checkbox" checked={v} onChange={e => toggle(k, e.target.checked)} /> {{ llm_extraction: "חילוץ באמצעות LLM (דורש OPENAI_API_KEY בתשלום)", pgvector: "זיכרון pgvector (דורש Postgres עם USE_PGVECTOR=1)", maintenance_mode: "מצב תחזוקה" }[k as string] || k}</label>)}
+      {Object.entries(d.settings.flags).map(([k, v]: any) => <label key={k} style={{ display: "block" }}><input type="checkbox" checked={v} onChange={e => toggle(k, e.target.checked)} /> {{ llm_extraction: "המוח החכם: סוכן וחילוץ חכם (דורש לפחות מפתח חינמי אחד, ראה לשונית מוחות)", pgvector: "זיכרון pgvector (דורש Postgres עם USE_PGVECTOR=1)", maintenance_mode: "מצב תחזוקה" }[k as string] || k}</label>)}
       <div>LLM מוגדר בשרת: {d.settings.capabilities.llm_configured ? "כן" : "לא"} · pgvector בסביבה: {d.settings.capabilities.pgvector_env ? "כן" : "לא"}</div></div>}
+  </div>;
+}
+
+
+/** Control room for the free AI providers and web-search engines: what is configured, how many keys, who is resting, last error.
+ *  Keys are never shown (only counts). "Test" sends one tiny request per key so you see which really work. */
+function BrainsView({ api, data, reload, setMsg }: { api: Api; data: any; reload: () => void; setMsg: (s: string) => void }) {
+  const [test, setTest] = useState<any[] | null>(null), [busy, setBusy] = useState(false);
+  if (!data) return <div className="note">טוען...</div>;
+  const run = async () => { try { setMsg(""); setBusy(true); setTest((await api("/api/admin/brains/test", { method: "POST" })).results); reload(); } catch (e: any) { setMsg(e.message); } finally { setBusy(false); } };
+  const llm = data.llm.providers as any[], search = data.search as any[];
+  const row = (x: any, kind: string) => <tr key={kind + x.name}>
+    <td><b>{x.label || x.name}</b>{x.paid && <span className="faint"> (בתשלום, כבוי)</span>}</td>
+    <td><span className={"pill " + (x.configured ? "on" : "off")}>{x.configured ? `פעיל · ${x.keys} מפתחות${x.keys_cooling ? ` · ${x.keys_cooling} במנוחה` : ""}` : "לא מוגדר"}</span></td>
+    <td className="faint">{x.configured ? `${x.ok} הצלחות / ${x.fail} כשלונות${x.avg_ms ? ` · ${x.avg_ms}ms` : ""}${x.last_model ? ` · ${x.last_model}` : ""}` : x.note}</td>
+    <td className="faint">{x.last_error || ""}{!x.configured && x.signup && <> <a href={x.signup} target="_blank" rel="noopener noreferrer">קבל מפתח</a> · <code>{x.env.join(" / ")}</code></>}</td></tr>;
+  return <div>
+    <p>המערכת מנסה את הספקים לפי הסדר. כשמפתח או ספק מגיע למכסה, היא עוברת אוטומטית לבא אחריו. מפתחות נוספים של אותו ספק מוסיפים מכסה חינמית: אפשר להגדיר כמה בשורה אחת מופרדים בפסיק.</p>
+    {!data.flag_on && <div className="note">הדגל llm_extraction כבוי: הסוכן והחילוץ החכם לא ישתמשו במוחות עד שתדליק אותו בהגדרות (או BRAINS_AUTO_ENABLE=1).</div>}
+    <h4>מודלי שפה {data.llm.primary && <span className="faint">· ראשי: {data.llm.primary.provider} / {data.llm.primary.model}</span>}</h4>
+    <table><tbody>{llm.map(x => row(x, "l"))}</tbody></table>
+    <p className="faint">חילוץ מודעות היום: {data.llm.extract_used_today} מתוך {data.llm.extract_cap} (תקרה יומית כדי לשמור מכסה לסוכן)</p>
+    <h4>מנועי חיפוש ברשת</h4>
+    <table><tbody>{search.map(x => row(x, "s"))}</tbody></table>
+    <button onClick={run} disabled={busy}>{busy ? "בודק..." : "בדוק חיבורי AI"}</button>
+    {test && <table><tbody>{test.length === 0 && <tr><td>אין מפתחות לבדיקה</td></tr>}{test.map((t, i) => <tr key={i}><td>{t.provider}</td><td>{t.key}</td><td>{t.model}</td><td>{t.ok ? `✓ ${t.ms}ms` : "✗ " + t.error}</td></tr>)}</tbody></table>}
   </div>;
 }

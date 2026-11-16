@@ -40,14 +40,14 @@ export function AgentPanel({ api, onChanged }: { api: Api; onChanged?: () => voi
 
   const live = st?.mode === "agent";
   const banner = !st ? "" : live ? "" : !st.key_configured
-    ? "מצב בסיסי: אני עונה מכללים מקומיים. להפעלת המוח החכם הוסף GEMINI_API_KEY בשרת והדלק את הדגל llm_extraction בפאנל הניהול."
-    : "המפתח קיים. נשאר להדליק את הדגל llm_extraction בפאנל הניהול כדי שהסוכן החכם יעבוד.";
+    ? "מצב בסיסי: אני עונה מכללים מקומיים. להפעלת המוח החכם הוסף בשרת מפתח חינמי אחד או יותר (GEMINI_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY, OPENROUTER_API_KEY ועוד), והדלק את הדגל llm_extraction בלשונית ניהול, לשונית הגדרות. פירוט בלשונית ניהול, לשונית מוחות."
+    : "המפתחות קיימים. נשאר להדליק את הדגל llm_extraction בלשונית ניהול, לשונית הגדרות (או להגדיר BRAINS_AUTO_ENABLE=1 בשרת) כדי שהסוכן החכם יעבוד.";
 
   return (
     <section className="card agent" aria-label="הסוכן">
       <header className="agent-head">
         <div><h3>הסוכן שלי</h3><p>שואל, מנתח, מבצע פעולות ומתאים את עצמו אליך.</p></div>
-        <span className={"pill " + (live ? "on" : "off")}>{live ? `חכם · ${st.model}` : "בסיסי"}</span>
+        <span className={"pill " + (live ? "on" : "off")}>{live ? `חכם · ${st.provider ? st.provider + " / " : ""}${st.model}${st.brains?.length > 1 ? ` (+${st.brains.length - 1} גיבויים)` : ""}` : "בסיסי"}</span>
       </header>
       {banner && <div className="note">{banner}</div>}
       <div className="chat" role="log" aria-live="polite">
@@ -102,7 +102,7 @@ export function DiscoverPanel({ api, searches, onChanged }: { api: Api; searches
       <p>שתי דרכים חוקיות להכניס מודעות: חיפוש ברשת דרך מנוע חיפוש רשמי, או הדבקה של כמה מודעות יחד. כל אחת מנותחת ומדורגת.</p>
       <select value={sid} onChange={e => setSid(e.target.value)} aria-label="חיפוש">{searches.length === 0 && <option value="">צור קודם חיפוש</option>}{searches.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
       <h4>חיפוש ברשת</h4>
-      {web === null && <div className="note-l">חיפוש ברשת כבוי. כדי להפעיל: ב-Railway, בשירות השרת, הוסף TAVILY_API_KEY (חינם, בלי כרטיס אשראי, ב-app.tavily.com).</div>}
+      {web === null && <div className="note-l">חיפוש ברשת כבוי. כדי להפעיל: בשרת, הוסף מפתח חינמי אחד או יותר: TAVILY_API_KEY (app.tavily.com, בלי כרטיס אשראי), SERPER_API_KEY, EXA_API_KEY, JINA_API_KEY, BRAVE_API_KEY, או SEARXNG_URL. אפשר כמה מפתחות בשורה אחת מופרדים בפסיק, וכשמפתח נגמר המערכת עוברת לבא אחריו. פירוט בלשונית ניהול, לשונית מוחות.</div>}
       <div className="row"><input value={q} maxLength={200} placeholder="אופציונלי: מה לחפש? אם ריק, נבנה מהחיפוש שבחרת" onChange={e => setQ(e.target.value)} /><button onClick={web_} disabled={busy || !sid || !web}>{busy ? "מחפש..." : "חפש ברשת"}</button></div>
       <h4>הדבקה מרובה</h4>
       <textarea rows={4} value={bulk} onChange={e => setBulk(e.target.value)} placeholder={"הדבק כמה מודעות. הפרד ביניהן בשורה של --- או בשתי שורות ריקות."} />

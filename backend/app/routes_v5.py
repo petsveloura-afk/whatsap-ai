@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from . import agent, discovery, flags
+from . import agent, brains, discovery, flags
 from .db import Base, engine, get_db
 from .main import current_user
 from . import main as _m
@@ -26,7 +26,8 @@ def _live(db: Session) -> bool:
 def status(u: User = Depends(current_user), db: Session = Depends(get_db)):
     c = agent.cfg()
     return {"mode": "agent" if _live(db) else "rules", "key_configured": c is not None, "flag_on": flags.load(db)["llm_extraction"],
-            "web_search": discovery.provider(), "provider": c["provider"] if c else None, "model": c["model"] if c else None,
+            "web_search": discovery.provider(), "web_searches": discovery.providers(), "provider": c["provider"] if c else None, "model": c["model"] if c else None,
+            "brains": brains.status()["active"],
             "memories": len(db.scalars(select(AgentMemory.id).where(AgentMemory.user_id == u.id)).all())}
 
 
@@ -104,7 +105,7 @@ class DiscoverIn(BaseModel):
 @router.post("/api/agent/discover")
 def discover(b: DiscoverIn, u: User = Depends(current_user), db: Session = Depends(get_db)):
     s = _m._own_search(db, u, b.search_id)
-    if not discovery.provider(): raise HTTPException(503, "חיפוש ברשת לא מוגדר: הוסף BRAVE_API_KEY או TAVILY_API_KEY בשרת")
+    if not discovery.provider(): raise HTTPException(503, "חיפוש ברשת לא מוגדר: הוסף מפתח חינמי אחד לפחות בשרת (TAVILY_API_KEY, SERPER_API_KEY, BRAVE_API_KEY, EXA_API_KEY, JINA_API_KEY או SEARXNG_URL)")
     if not s.active: raise HTTPException(409, "Search is paused")
     if not _m.limiter.allow("web:" + u.id, 20, 3600): raise HTTPException(429, "מכסת חיפושי רשת לשעה הסתיימה")
     from . import feeds
