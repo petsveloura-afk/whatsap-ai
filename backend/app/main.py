@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .events import hub, STATS
 from .security import hash_pw, check_pw, make_token, read_token
 from .extract import extract
+from .contacts import listing_card
 from .scoring import score, risks
 from .nlsearch import parse_search
 from .neardup import is_near_duplicate, embed
@@ -94,7 +95,7 @@ def ingest(b: IngestIn, u: User = Depends(current_user), db: Session = Depends(g
 @app.get("/api/listings")
 def listings(u: User = Depends(current_user), db: Session = Depends(get_db)):
     rows = db.scalars(select(Listing).where(Listing.user_id == u.id).order_by(Listing.score.desc())).all()
-    return [{"id": l.id, "score": l.score, "status": l.status, "extracted": l.extracted, "risks": l.risks} for l in rows]
+    return [listing_card(l) for l in rows]
 
 def _personalization_on(db, u):
     p = db.scalar(select(UserPreference).where(UserPreference.user_id == u.id)); return p.personalization_enabled if p else True

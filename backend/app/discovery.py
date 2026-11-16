@@ -53,6 +53,11 @@ def search(query: str, n: int = 10) -> list[dict]:
     return clean[:n]
 
 
+def _contacts(text, url):
+    from .contacts import extract_contacts
+    return extract_contacts(text, url)
+
+
 def _ingest(db: Session, u: User, s: SearchConfig, text: str, url: str | None, out: dict):
     from . import main as M
     try:
@@ -63,7 +68,8 @@ def _ingest(db: Session, u: User, s: SearchConfig, text: str, url: str | None, o
         log.warning("discovery ingest failed: %s", type(e).__name__); out["errors"] += 1; db.rollback(); return
     out["new" if l.status == "new" else "rejected"] += 1
     out["items"].append({"id": l.id, "score": l.score, "status": l.status, "location": (l.extracted or {}).get("location"),
-                         "price": (l.extracted or {}).get("price"), "url": url})
+                         "price": (l.extracted or {}).get("price"), "url": url,
+                         "title": text.strip().split("\n", 1)[0][:140], "contact": _contacts(text, url)})
 
 
 def _summary() -> dict:

@@ -82,3 +82,9 @@ Public API keys, signed webhooks, referrals, share links, market intelligence ("
 - `POST /api/listings/ingest-bulk {search_id, text}`: up to 30 pasted listings separated by `---` or blank lines.
 - Agent tools `web_search_import` and `ingest_many` use the same code. `GET /api/agent/status` now reports `web_search`.
 - Agent provider: a `GEMINI_API_KEY` wins over `LLM_PROVIDER`; set `AGENT_PROVIDER=groq` to force otherwise. Groq defaults to `llama-3.3-70b-versatile` for the agent.
+
+## v3.4 - New interface + contact actions
+- New "Neon Instrument" UI: sidebar navigation (bottom bar on phones), KPI cards, ring gauges, glass surfaces, dark/light themes.
+- Every opportunity now shows ways to reach the owner: call, WhatsApp (pre-filled message), e-mail, Telegram, and a link to the source ad, plus copy-details.
+- Backend: `app/contacts.py` extracts phones/e-mails/chat links from the ad text you already stored (no scraping); `GET /api/listings` keeps all old fields and adds title, summary, raw_text, contact, highlights, source_url, created_at. Web-discovery results also carry title and contact.
+- No existing panel, endpoint or table was removed.
