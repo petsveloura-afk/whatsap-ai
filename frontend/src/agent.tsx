@@ -111,7 +111,13 @@ export function DiscoverPanel({ api, searches, onChanged }: { api: Api; searches
       {res && (
         <div className="found">
           <p>{res.results_found != null ? `נמצאו ${res.results_found} תוצאות. ` : `נותחו ${res.parsed} מודעות. `}התאמות חדשות: <b>{res.new}</b> · נפסלו: {res.rejected} · כבר קיימות: {res.duplicates}{res.errors ? ` · שגיאות: ${res.errors}` : ""}</p>
-          {res.items?.map((i: any) => <div className="found-row" key={i.id}><span className="score" style={{ "--p": i.score } as any}>{i.score}</span><span>{i.location || "?"}{i.price ? ` · ${Math.round(i.price).toLocaleString()}` : ""}</span>{i.url && <a href={i.url} target="_blank" rel="noopener noreferrer nofollow">פתח מקור</a>}</div>)}
+          {res.items?.map((i: any) => { const ph = i.contact?.phones?.[0]; return <div className="found-row" key={i.id}><span className="score" style={{ "--p": i.score } as any}>{i.score}</span>
+            <span className="fr-main"><b>{i.title || i.location || "?"}</b><span className="faint">{i.location || "?"}{i.price ? ` · ${Math.round(i.price).toLocaleString()}` : ""}{ph ? ` · ${ph.display}` : ""}</span></span>
+            <span className="fr-act">
+              {ph && <a className="btn call sm" href={"tel:" + ph.tel}>התקשר</a>}
+              {ph?.whatsapp && <a className="btn wa sm" href={ph.whatsapp} target="_blank" rel="noopener noreferrer">וואטסאפ</a>}
+              {i.contact?.emails?.[0] && <a className="btn mail sm" href={"mailto:" + i.contact.emails[0]}>אימייל</a>}
+              {i.url && <a className="btn src sm" href={i.url} target="_blank" rel="noopener noreferrer nofollow">פתח מקור</a>}</span></div>; })}
           {res.results_found != null && <p className="faint">תקצירי חיפוש חלקיים, לכן ציון נמוך לא תמיד אומר שהמודעה גרועה. פתח את המקור לפרטים.</p>}
         </div>
       )}
