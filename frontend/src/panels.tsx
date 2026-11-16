@@ -103,15 +103,16 @@ export function AdminPanel({ api, role }: { api: Api; role: string }) {
 /** Control room for the free AI providers and web-search engines: what is configured, how many keys, who is resting, last error.
  *  Keys are never shown (only counts). "Test" sends one tiny request per key so you see which really work. */
 function BrainsView({ api, data, reload, setMsg }: { api: Api; data: any; reload: () => void; setMsg: (s: string) => void }) {
-  const [test, setTest] = useState<any[] | null>(null), [busy, setBusy] = useState(false);
+  const [test, setTest] = useState<any[] | null>(null), [busy, setBusy] = useState(false), [found, setFound] = useState<any[] | null>(null), [busy2, setBusy2] = useState(false);
   if (!data) return <div className="note">טוען...</div>;
+  const refreshModels = async () => { try { setMsg(""); setBusy2(true); setFound((await api("/api/admin/brains/models/refresh", { method: "POST" })).results); reload(); } catch (e: any) { setMsg(e.message); } finally { setBusy2(false); } };
   const run = async () => { try { setMsg(""); setBusy(true); setTest((await api("/api/admin/brains/test", { method: "POST" })).results); reload(); } catch (e: any) { setMsg(e.message); } finally { setBusy(false); } };
   const llm = data.llm.providers as any[], search = data.search as any[];
   const row = (x: any, kind: string) => <tr key={kind + x.name}>
     <td><b>{x.label || x.name}</b>{x.paid && <span className="faint"> (בתשלום, כבוי)</span>}</td>
     <td><span className={"pill " + (x.configured ? "on" : "off")}>{x.configured ? `פעיל · ${x.keys} מפתחות${x.keys_cooling ? ` · ${x.keys_cooling} במנוחה` : ""}` : "לא מוגדר"}</span></td>
     <td className="faint">{x.configured ? `${x.ok} הצלחות / ${x.fail} כשלונות${x.avg_ms ? ` · ${x.avg_ms}ms` : ""}${x.last_model ? ` · ${x.last_model}` : ""}` : x.note}</td>
-    <td className="faint">{x.last_error || ""}{!x.configured && x.signup && <> <a href={x.signup} target="_blank" rel="noopener noreferrer">קבל מפתח</a> · <code>{x.env.join(" / ")}</code></>}</td></tr>;
+    <td className="faint">{x.last_error || ""}{x.configured && x.discovery && x.discovery.on && <div>{x.discovery.ok ? `גילוי מודלים: ${x.discovery.count} זמינים · ${(x.models || []).slice(0, 3).join(", ")}` : x.discovery.ok === false ? `גילוי מודלים נכשל (${x.discovery.error || "?"}), משתמש ברשימה המובנית` : "גילוי מודלים עוד לא רץ"}</div>}{!x.configured && x.signup && <> <a href={x.signup} target="_blank" rel="noopener noreferrer">קבל מפתח</a> · <code>{x.env.join(" / ")}</code></>}</td></tr>;
   return <div>
     <p>המערכת מנסה את הספקים לפי הסדר. כשמפתח או ספק מגיע למכסה, היא עוברת אוטומטית לבא אחריו. מפתחות נוספים של אותו ספק מוסיפים מכסה חינמית: אפשר להגדיר כמה בשורה אחת מופרדים בפסיק.</p>
     {!data.flag_on && <div className="note">הדגל llm_extraction כבוי: הסוכן והחילוץ החכם לא ישתמשו במוחות עד שתדליק אותו בהגדרות (או BRAINS_AUTO_ENABLE=1).</div>}
@@ -120,7 +121,8 @@ function BrainsView({ api, data, reload, setMsg }: { api: Api; data: any; reload
     <p className="faint">חילוץ מודעות היום: {data.llm.extract_used_today} מתוך {data.llm.extract_cap} (תקרה יומית כדי לשמור מכסה לסוכן)</p>
     <h4>מנועי חיפוש ברשת</h4>
     <table><tbody>{search.map(x => row(x, "s"))}</tbody></table>
-    <button onClick={run} disabled={busy}>{busy ? "בודק..." : "בדוק חיבורי AI"}</button>
-    {test && <table><tbody>{test.length === 0 && <tr><td>אין מפתחות לבדיקה</td></tr>}{test.map((t, i) => <tr key={i}><td>{t.provider}</td><td>{t.key}</td><td>{t.model}</td><td>{t.ok ? `✓ ${t.ms}ms` : "✗ " + t.error}</td></tr>)}</tbody></table>}
+    <button onClick={run} disabled={busy}>{busy ? "בודק..." : "בדוק חיבורי AI"}</button> <button onClick={refreshModels} disabled={busy2}>{busy2 ? "מרענן..." : "רענן רשימת מודלים"}</button>
+    {found && <table><tbody>{found.length === 0 && <tr><td>אין ספקים מוגדרים</td></tr>}{found.map((f, i) => <tr key={i}><td>{f.provider}</td><td>{f.ok ? `✓ ${f.count} מודלים` : "✗ " + (f.error || "")}</td><td className="faint">{(f.models || []).join(", ")}</td></tr>)}</tbody></table>}
+    {test && <table><tbody>{test.length === 0 && <tr><td>אין מפתחות לבדיקה</td></tr>}{test.map((t, i) => <tr key={i}><td>{t.provider}</td><td>{t.key}</td><td>{t.model}{t.tried && t.tried.length > 1 && <span className="faint"> (נוסו: {t.tried.join(" ← ")})</span>}</td><td>{t.ok ? `✓ ${t.ms}ms` : "✗ " + t.error}</td></tr>)}</tbody></table>}
   </div>;
 }

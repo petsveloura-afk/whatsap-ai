@@ -26,6 +26,19 @@ def brains_test(a: User = Depends(need(*ADMIN))):
     return {"results": brains.ping()}
 
 
+@router.post("/api/admin/brains/models/refresh")
+def brains_models_refresh(a: User = Depends(need(*ADMIN))):
+    """v3.12: ask every configured provider which models the key can really use (GET <base>/models) and re-rank them. Costs no model quota."""
+    if not limiter.allow("brains-refresh:" + a.id, 6, 300): raise HTTPException(429, "רענון אחד בכל כמה דקות מספיק, נסה שוב מאוחר יותר")
+    return {"results": brains.refresh_models(), "status": brains.status()}
+
+
+try:   # v3.12: learn the available models in the background right after start-up (never blocks, never raises, off in unit tests)
+    import os as _os
+    if not _os.environ.get("PYTEST_CURRENT_TEST") and _os.environ.get("BRAINS_DISCOVER", "") != "0": brains.warm()
+except Exception: log.info("brains warm-up skipped")
+
+
 from sqlalchemy import select as _select
 from . import outreach as _outreach
 from .models import Listing as _Listing, SearchConfig as _SC

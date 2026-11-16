@@ -95,3 +95,12 @@ Public API keys, signed webhooks, referrals, share links, market intelligence ("
 - `app/discovery.py`: web search over Tavily, Serper, Brave, Exa, Jina, Google CSE and SearXNG with the same key pool; results are merged and de-duplicated.
 - `GET /api/admin/brains`, `POST /api/admin/brains/test` and the new **Admin > Brains** tab. `GET /api/agent/status` adds `brains` and `web_searches`. Keys are never returned.
 - Setup guide (Hebrew): `docs/FREE-BRAINS.md`. Tests: `backend/tests/test_brains.py` (no network).
+
+## v3.12 - Model discovery (additive)
+- Problem fixed: Google and Groq retired the model names that were hard-coded (`gemini-2.5-flash`, `llama-3.3-70b-versatile`), so "בדוק חיבורי AI" showed HTTP 404 even with valid keys.
+- `app/brains.py` now asks every provider which models the key can really use (`GET <base>/models`), drops non-chat models (embeddings, speech, image, guard), ranks the rest (newest and strongest first, stable `-latest` aliases preferred, previews last) and refreshes the list every 6 hours. A retired name fixes itself; no code change needed.
+- When a 404 message names the replacement ("update your code to use models/gemini-3.8-flash") it is learned and tried immediately.
+- The static lists stay as the fallback (two stable Gemini aliases and two Groq models were added). `<NAME>_MODEL=...` still overrides everything. `BRAINS_DISCOVER=0` turns discovery off.
+- Free-only: OpenRouter discovery keeps only `:free` models; OpenAI (paid) and Cloudflare are never queried.
+- "בדוק חיבורי AI" now tries the next model when one is retired and shows what was tried. New button **רענן רשימת מודלים** (`POST /api/admin/brains/models/refresh`, no model quota used). The agent picks the best discovered Gemini model instead of a fixed name.
+- Tests: `backend/tests/test_brains_discovery.py` (no network).

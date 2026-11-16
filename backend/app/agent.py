@@ -40,7 +40,7 @@ def cfg() -> dict | None:
     gk, prov = pool.keys("GEMINI_API_KEY"), (os.environ.get("AGENT_PROVIDER") or "").lower()
     if gk and prov in ("", "gemini"):   # a Gemini key wins over LLM_PROVIDER (which only drives the older extraction feature); AGENT_PROVIDER=groq forces otherwise
         return {"provider": "gemini", "base": GEMINI_BASE, "key": gk[0],
-                "model": os.environ.get("AGENT_MODEL") or os.environ.get("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL}
+                "model": os.environ.get("AGENT_MODEL") or os.environ.get("GEMINI_MODEL") or brains.best_model("gemini", need_tools=True) or DEFAULT_GEMINI_MODEL}
     c = brains.primary(need_tools=True, prefer=prov or None)
     if c:
         return {"provider": c["provider"], "base": c["base"], "model": os.environ.get("AGENT_MODEL") or c["model"], "key": c["key"]}
