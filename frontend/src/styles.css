@@ -368,3 +368,41 @@ pre{padding:.8rem;overflow:auto;line-height:1.55}
 .outbox input,.outbox textarea{margin:0;inline-size:100%;box-sizing:border-box;font:inherit}
 .outbox textarea{resize:vertical;line-height:1.5}
 .outbox .ghost.on{border-color:currentColor;font-weight:600}
+
+/* v3.14 menu polish: the same six tabs, cleaner rhythm and a clear active marker. CSS only. */
+.nav{gap:.25rem}
+.nav button{border-radius:14px;padding:.55rem .9rem}
+.nav button .ico{opacity:.85}
+.nav button[aria-current="page"] .ico{opacity:1;color:var(--cy)}
+.nav button[aria-current="page"]::before{content:"";position:absolute;inset-block:24%;inset-inline-start:-.8rem;inline-size:3px;border-radius:0 3px 3px 0;background:var(--grad)}
+@media (max-width:960px){.nav button[aria-current="page"]::before{inset:auto 25% 2px 25%;inline-size:auto;block-size:3px;border-radius:3px}}
+
+/* v3.15 visual polish: additive overrides only (no rule above was edited). Same six tabs, same markup. */
+/* select chevron: the RTL rule above swapped the two halves, which drew the arrow upside down */
+[dir="rtl"] select{background-position:14px 55%,20px 55%}
+/* aligned icon + label in segmented controls */
+.seg button{display:inline-flex;align-items:center;justify-content:center;gap:.4rem}
+.pro>.seg{flex-wrap:wrap;overflow:visible}
+@media (max-width:960px){
+  /* bottom bar: every tab always visible, no sideways scrolling, iPhone safe area respected */
+  .shell{padding-bottom:calc(6.6rem + env(safe-area-inset-bottom,0px))}
+  .side{inset-inline:.5rem;inset-block-end:calc(.5rem + env(safe-area-inset-bottom,0px));padding:.3rem;box-shadow:0 12px 34px -10px rgba(0,0,0,.7),var(--sh)}
+  .nav{overflow:visible;gap:.1rem}
+  .nav button{flex:1 1 0;min-inline-size:0;padding:.35rem .1rem;font-size:.64rem;line-height:1.12;min-height:54px;gap:.18rem;border-radius:14px;text-align:center;overflow-wrap:normal}
+  .nav button .ico{inline-size:1.3rem;block-size:1.3rem}
+  .nav button[aria-current="page"]{font-weight:800}
+  .toast{inset-block-end:calc(6.4rem + env(safe-area-inset-bottom,0px))}
+}
+@media (max-width:640px){
+  /* top strip: one tidy line for status, buttons share the row below */
+  .top{gap:.4rem .6rem;padding-bottom:.6rem}
+  .top .who{flex-wrap:nowrap;min-inline-size:0;font-size:.86rem}
+  .top .who:first-child{flex:1 1 100%}
+  .top .who:first-child>span:nth-child(2){min-inline-size:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .top .who:last-child{flex:1 1 100%}
+  .top .who:last-child button{flex:1}
+  /* pro sub-tabs: 4x2 grid, all eight visible at once */
+  .pro>.seg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.25rem}
+  .pro>.seg button{flex-direction:column;gap:.15rem;white-space:normal;min-height:54px;padding:.35rem .15rem;font-size:.72rem;line-height:1.15;text-align:center}
+}
+@media (max-width:360px){.nav button{font-size:.6rem}}

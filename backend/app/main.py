@@ -458,3 +458,8 @@ try:   # v3.13 pro toolkit + Scan+ (additive; no new tables)
     app.include_router(routes_v7.router)
 except Exception:
     import logging as _lg; _lg.getLogger("sniper").exception("routes_v7 not loaded (core API unaffected)")
+try:   # v3.14 Scan Center: background deep scans with live progress (additive; no new tables)
+    from . import routes_v8
+    app.include_router(routes_v8.router)
+except Exception:
+    import logging as _lg; _lg.getLogger("sniper").exception("routes_v8 not loaded (core API unaffected)")

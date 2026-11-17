@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "./listings";
+import { ScanCenter } from "./scan";
 import "./styles.pro.css";
 type Api = (path: string, o?: any) => Promise<any>;
 
@@ -242,7 +243,8 @@ export function ProPanel({ api, listings = [], searches = [], isAdmin = false, o
   useEffect(() => { loadCat(); }, [sub]);
   return <div className="pro"><div className="seg" role="tablist" aria-label="כלי פרו">{SUB.map(([k, t, ic]) => <button key={k} role="tab" aria-pressed={sub === k} onClick={() => setSub(k)}><Icon n={ic} />{t}</button>)}</div>
     {sub === "overview" && <Overview api={api} cat={cat} isAdmin={isAdmin} go={(t: string) => setSub(t)} />}
-    {sub === "scan" && <ScanPlus api={api} searches={searches} onChanged={onChanged} />}
+    {sub === "scan" && <><ScanCenter api={api} searches={searches} isAdmin={isAdmin} onChanged={onChanged} />
+      <details className="card"><summary>סריקה מורחבת קלאסית, בריאות מנועים וסריקה אוטומטית</summary><ScanPlus api={api} searches={searches} onChanged={onChanged} /></details></>}
     {sub === "analyze" && <Analyze api={api} listings={listings} searches={searches} />}
     {sub === "compare" && <Compare api={api} listings={listings} />}
     {sub === "calc" && <Calc api={api} />}
