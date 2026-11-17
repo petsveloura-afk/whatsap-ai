@@ -44,8 +44,9 @@ FEATURE_IDS = {f["id"] for f in FEATURES}
 GROUPS = {"scan": "סריקה ואוטומציה", "analysis": "ניתוח הזדמנות", "ai": "בינה מלאכותית", "calc": "מחשבונים", "crm": "מעקב ולקוחות", "reports": "דוחות ומיתוג"}
 
 
+def _utcnow() -> dt.datetime: return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
 def feature(fid: str) -> dict | None: return next((f for f in FEATURES if f["id"] == fid), None)
-def month_key(now: dt.datetime | None = None) -> str: return (now or dt.datetime.utcnow()).strftime("%Y%m")
+def month_key(now: dt.datetime | None = None) -> str: return (now or _utcnow()).strftime("%Y%m")
 
 
 def access(fid: str, plan: str, used: int, open_all: bool = False) -> dict:
@@ -433,7 +434,7 @@ MAX_CRM, MAX_NOTES = 500, 20
 
 
 def crm_update(crm: dict, lid: str, stage: str | None = None, note: str | None = None, due: str | None = None, now: dt.datetime | None = None) -> dict:
-    now = now or dt.datetime.utcnow(); crm = dict(crm or {}); e = dict(crm.get(lid) or {"stage": "new", "notes": [], "due": None, "created": now.isoformat(timespec="seconds")})
+    now = now or _utcnow(); crm = dict(crm or {}); e = dict(crm.get(lid) or {"stage": "new", "notes": [], "due": None, "created": now.isoformat(timespec="seconds")})
     if stage is not None:
         if stage not in STAGE_IDS: raise ValueError("unknown stage")
         e["stage"] = stage

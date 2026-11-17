@@ -2,7 +2,7 @@
 Additive: every route is new and registered in main.py inside try/except, so a problem here can never take the core API down.
 No new tables: per-user documents live in system_settings under 'pro:<hash(user)>:<name>' (settings, crm, rules, clients, autoscan, monthly usage).
 Plans: starter < pro < vip. A lower plan gets a few free trial uses per month of each paid feature (the upsell hook); PRO_OPEN=1 opens everything (testing)."""
-import datetime as dt, hashlib, logging, os, time
+import copy, datetime as dt, hashlib, logging, os, time
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -27,7 +27,7 @@ def _open() -> bool: return os.environ.get("PRO_OPEN") == "1"
 # ---------------------------------------------------------------- per-user documents (system_settings)
 def _key(uid: str, name: str) -> str: return f"pro:{hashlib.sha256(uid.encode()).hexdigest()[:20]}:{name}"[:60]
 def _doc(db: Session, uid: str, name: str) -> dict:
-    row = db.get(SystemSetting, _key(uid, name)); return dict(row.value) if row and isinstance(row.value, dict) else {}
+    row = db.get(SystemSetting, _key(uid, name)); return copy.deepcopy(row.value) if row and isinstance(row.value, dict) else {}   # deep copy: editing a nested dict of the loaded value in place would hide the change from SQLAlchemy
 def _save(db: Session, uid: str, name: str, value: dict):
     k = _key(uid, name); row = db.get(SystemSetting, k)
     if row: row.value = value
@@ -506,7 +506,7 @@ def _docs(db: Session, name: str, limit: int = 200):
 def autoscan_tick(db: Session) -> int:
     done = 0; budget = max(1, int(os.environ.get("AUTO_SCAN_MAX_PER_TICK", "2")))
     for row in _docs(db, "autoscan"):
-        d = dict(row.value or {})
+        d = copy.deepcopy(row.value or {})
         if not d.get("enabled") or not d.get("uid"): continue
         u = db.get(User, d["uid"])
         if not u or not u.is_active: continue
@@ -528,7 +528,7 @@ def autoscan_tick(db: Session) -> int:
 def alerts_tick(db: Session) -> int:
     n = 0
     for row in _docs(db, "rules"):
-        d = dict(row.value or {}); rules = [r for r in d.get("rules", []) if r.get("active", True)]
+        d = copy.deepcopy(row.value or {}); rules = [r for r in d.get("rules", []) if r.get("active", True)]
         if not rules or not d.get("uid"): continue
         try: since = dt.datetime.fromisoformat(d.get("checked") or "")
         except ValueError: since = _now() - dt.timedelta(days=1)
@@ -548,7 +548,7 @@ def alerts_tick(db: Session) -> int:
 def reminders_tick(db: Session) -> int:
     n = 0
     for row in _docs(db, "crm"):
-        d = dict(row.value or {}); items = dict(d.get("items") or {}); uid = d.get("uid"); changed = False
+        d = copy.deepcopy(row.value or {}); items = d.get("items") or {}; uid = d.get("uid"); changed = False
         for r in T.due_reminders(items):
             e = items.get(r["listing_id"]) or {}
             if r["days"] <= 0 and not e.get("notified") and uid:
