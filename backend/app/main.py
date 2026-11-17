@@ -453,3 +453,8 @@ try:   # v3.7 brains control room (additive)
     app.include_router(routes_v6.router)
 except Exception:
     import logging as _lg; _lg.getLogger("sniper").exception("routes_v6 not loaded (core API unaffected)")
+try:   # v3.13 pro toolkit + Scan+ (additive; no new tables)
+    from . import routes_v7
+    app.include_router(routes_v7.router)
+except Exception:
+    import logging as _lg; _lg.getLogger("sniper").exception("routes_v7 not loaded (core API unaffected)")

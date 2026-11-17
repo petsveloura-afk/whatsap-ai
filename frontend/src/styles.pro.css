@@ -1,0 +1,46 @@
+/* v3.13 Pro toolkit: scoped under .pro, animated, respects reduced motion. Uses the existing design tokens (--cy, --vi, --gr, --am, --rd ...). */
+.pro{display:grid;gap:1rem}
+.pro button{width:auto;min-height:38px;justify-content:center;padding:.35rem .9rem;gap:.4rem}
+.pro .seg{width:100%;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:thin}.pro .seg button{white-space:nowrap;flex:none}
+.pro .seg button[aria-pressed="true"]{background:var(--grad-soft);color:var(--ink);border-color:var(--line-h);box-shadow:0 0 0 1px var(--line-h) inset}
+.pro-grid{display:grid;gap:.8rem;grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
+.pro-card{position:relative;display:flex;flex-direction:column;gap:.35rem;padding:1rem;border-radius:var(--r);background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh);
+  animation:proUp .5s cubic-bezier(.2,.7,.2,1) both;animation-delay:calc(var(--i,0)*35ms);transition:transform .25s,border-color .25s,box-shadow .25s}
+.pro-card:hover{transform:translateY(-3px);border-color:var(--line-h);box-shadow:0 22px 44px -24px rgba(34,211,238,.45)}
+.pro-card h4{margin:0;font-size:1rem;display:flex;align-items:center;gap:.45rem}.pro-card p{margin:0;color:var(--mut);font-size:.86rem;line-height:1.5}
+.pro-card.locked{opacity:.86}.pro-card.locked::after{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(120deg,transparent 40%,rgba(255,255,255,.06) 50%,transparent 60%);background-size:250% 100%;animation:proShine 3.2s linear infinite;pointer-events:none}
+.pbadge{display:inline-flex;align-items:center;padding:.08rem .55rem;border-radius:999px;font-size:.72rem;font-weight:800;border:1px solid var(--line-s);color:var(--mut)}
+.pbadge.starter{color:var(--gr);border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.1)}.pbadge.pro{color:var(--cy);border-color:rgba(34,211,238,.5);background:rgba(34,211,238,.1)}
+.pbadge.vip{color:#f9d27a;border-color:rgba(251,191,36,.55);background:linear-gradient(120deg,rgba(251,191,36,.18),rgba(244,114,182,.14));animation:proPulse 2.6s ease-in-out infinite}
+.trial{font-size:.76rem;color:var(--am)}
+.pro-hero{padding:1.2rem 1.3rem;border-radius:var(--r);background:var(--grad-soft);border:1px solid var(--line-s);position:relative;overflow:hidden}
+.pro-hero::before{content:"";position:absolute;inset:-40%;background:radial-gradient(circle at 30% 30%,rgba(34,211,238,.25),transparent 45%),radial-gradient(circle at 75% 60%,rgba(139,92,246,.25),transparent 45%);animation:proOrbit 14s linear infinite}
+.pro-hero>*{position:relative}.pro-hero h3{margin:.1rem 0 .3rem}.pro-hero p{margin:0;color:var(--mut)}
+.pro-form{display:grid;gap:.6rem;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));align-items:end}
+.pro-form label{display:grid;gap:.2rem;font-size:.82rem;color:var(--mut)}.pro-form input,.pro-form select,.pro textarea,.pro-wide{width:100%}
+.pro-out{padding:.9rem 1rem;border-radius:var(--r-s);background:var(--sunken);border:1px solid var(--line);animation:proUp .4s ease both;display:grid;gap:.5rem}
+.kvs{display:grid;gap:.35rem;grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}
+.kv{padding:.5rem .7rem;border-radius:10px;background:var(--surface);border:1px solid var(--line)}.kv small{display:block;color:var(--faint);font-size:.74rem}.kv b{font-size:1.05rem;font-variant-numeric:tabular-nums}
+.kv.hl{border-color:var(--line-h);background:var(--sig-soft)}
+.pro table{width:100%;border-collapse:collapse;font-size:.86rem}.pro td,.pro th{padding:.35rem .5rem;border-bottom:1px solid var(--line);text-align:right}.pro th{color:var(--faint);font-weight:600}
+.gauge{--p:0;--c:var(--gr);inline-size:92px;block-size:92px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--c) calc(var(--p)*1%),var(--line) 0);position:relative;animation:proGauge .9s ease both;flex:none}
+.gauge::before{content:"";position:absolute;inset:9px;border-radius:50%;background:var(--bg2)}.gauge b{position:relative;font-size:1.25rem;font-variant-numeric:tabular-nums}
+.gauge.med{--c:var(--am)}.gauge.high{--c:var(--rd)}
+.rowf{display:flex;gap:.8rem;align-items:center;flex-wrap:wrap}
+.meter{block-size:8px;border-radius:99px;background:var(--line);overflow:hidden;min-inline-size:90px;flex:1}.meter i{display:block;block-size:100%;border-radius:99px;background:var(--grad);animation:proFill .9s ease both;transform-origin:right}
+.sig{display:flex;gap:.5rem;align-items:flex-start;padding:.4rem .6rem;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-size:.86rem}
+.sig b{color:var(--am);font-variant-numeric:tabular-nums;min-inline-size:2.2rem}
+.upsell{display:flex;gap:.6rem;align-items:center;padding:.7rem .9rem;border-radius:var(--r-s);border:1px solid rgba(251,191,36,.5);background:linear-gradient(120deg,rgba(251,191,36,.12),rgba(244,114,182,.1));color:#fde7ad;animation:proUp .35s ease both}
+.board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(210px,1fr);gap:.7rem;overflow-x:auto;padding-bottom:.4rem}
+.col{padding:.6rem;border-radius:var(--r-s);background:var(--sunken);border:1px solid var(--line);min-block-size:120px}.col h5{margin:.1rem 0 .5rem;display:flex;justify-content:space-between;color:var(--mut)}
+.lead{padding:.5rem .6rem;margin-bottom:.45rem;border-radius:10px;background:var(--surface);border:1px solid var(--line);font-size:.85rem;animation:proUp .35s ease both}.lead.over{border-color:rgba(251,113,133,.6)}
+.chips{display:flex;flex-wrap:wrap;gap:.3rem}.chips .tag{margin:0}
+.skel{block-size:14px;border-radius:8px;background:linear-gradient(90deg,var(--line) 25%,var(--line-s) 50%,var(--line) 75%);background-size:300% 100%;animation:proShine 1.4s linear infinite}
+.toast-mini{position:fixed;inset-block-end:1.2rem;inset-inline-start:1.2rem;padding:.55rem .9rem;border-radius:12px;background:var(--surface-s);border:1px solid var(--line-h);animation:proUp .3s ease both;z-index:50}
+@keyframes proUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes proShine{from{background-position:250% 0}to{background-position:-50% 0}}
+@keyframes proPulse{0%,100%{box-shadow:0 0 0 0 rgba(251,191,36,.35)}50%{box-shadow:0 0 0 6px rgba(251,191,36,0)}}
+@keyframes proOrbit{to{transform:rotate(360deg)}}
+@keyframes proGauge{from{--p:0;opacity:0;transform:scale(.8)}to{opacity:1;transform:none}}
+@keyframes proFill{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@media (prefers-reduced-motion:reduce){.pro *,.pro-card,.pro-hero::before{animation:none!important;transition:none!important}}

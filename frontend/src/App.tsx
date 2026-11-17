@@ -4,6 +4,7 @@ import { GrowthPanel } from "./growth";
 import { AssistantPanel } from "./assistant";
 import { AgentPanel, DiscoverPanel } from "./agent";
 import { Icon, Opportunities } from "./listings";
+import { ProPanel } from "./pro";
 import { fmtPrice } from "./lib/search";
 const API: string = (import.meta as any).env.VITE_API_URL || "";
 let access = "";
@@ -47,7 +48,7 @@ function Reset({ token }: any) {
   const go = async () => { try { await api("/api/auth/reset-password", { method: "POST", body: { token, password: pw } }); setMsg("הסיסמה עודכנה. אפשר להתחבר."); } catch (e: any) { setMsg(e.message); } };
   return <div className="wrap card"><h3>איפוס סיסמה</h3><input type="password" placeholder="סיסמה חדשה" value={pw} onChange={e => setPw(e.target.value)} /><button onClick={go}>עדכן</button> <a href="/">חזרה</a><div>{msg}</div></div>;
 }
-const TABS: [string, string, string][] = [["overview", "סקירה", "home"], ["opps", "הזדמנויות", "target"], ["agent", "הסוכן", "bot"], ["discover", "חיפושים ומקורות", "radar"], ["account", "החשבון", "user"]];
+const TABS: [string, string, string][] = [["overview", "סקירה", "home"], ["opps", "הזדמנויות", "target"], ["agent", "הסוכן", "bot"], ["discover", "חיפושים ומקורות", "radar"], ["pro", "כלי פרו", "bolt"], ["account", "החשבון", "user"]];
 function Dash({ user, onLogout }: any) {
   const [searches, setSearches] = useState<any[]>([]), [listings, setListings] = useState<any[]>([]), [ov, setOv] = useState<any>({}), [agents, setAgents] = useState<any[]>([]);
   const [sub, setSub] = useState<any>({}), [users, setUsers] = useState<any[]>([]), [msg, setMsg] = useState(""), [sid, setSid] = useState(""), [text, setText] = useState("");
@@ -134,6 +135,12 @@ function Dash({ user, onLogout }: any) {
         <div className="card"><h3>הדבק מודעה לניתוח</h3><select value={sid} onChange={e => setSid(e.target.value)}>{searches.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select><br /><textarea rows={3} style={{ width: "100%" }} value={text} onChange={e => setText(e.target.value)} placeholder="דירת 3 חדרים בחולון, משופצת, 5,200 ש״ח. לפרטים 050-123-4567" /><button onClick={ingest} disabled={!sid || text.length < 5}>נתח</button>
           <p className="faint">טיפ: הדבק את המודעה כולל הטלפון, ונציג לך כפתורי התקשרות ווטסאפ.</p></div>
         <SourcesPanel api={api} searches={searches} />
+        <div className="card"><h3>סריקה מורחבת</h3><p className="faint">שאילתות חכמות בכמה ניסוחים ובכל אתרי המודעות, דירוג מחדש וסינון זבל.</p><button onClick={() => go("pro")}><Icon n="radar" /> לסריקה המורחבת</button></div>
+      </section>
+
+      <section {...show("pro")}>
+        <div className="tab-h"><div><h2>כלי פרו</h2><p>סריקה מורחבת, ניתוח הונאות ומשא ומתן, מחשבונים, מעקב ולקוחות ודוחות ממותגים.</p></div></div>
+        <ProPanel api={api} listings={listings} searches={searches} isAdmin={isAdmin} onChanged={load} />
       </section>
 
       <section {...show("account")}>

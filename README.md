@@ -104,3 +104,11 @@ Public API keys, signed webhooks, referrals, share links, market intelligence ("
 - Free-only: OpenRouter discovery keeps only `:free` models; OpenAI (paid) and Cloudflare are never queried.
 - "בדוק חיבורי AI" now tries the next model when one is retired and shows what was tried. New button **רענן רשימת מודלים** (`POST /api/admin/brains/models/refresh`, no model quota used). The agent picks the best discovered Gemini model instead of a fixed name.
 - Tests: `backend/tests/test_brains_discovery.py` (no network).
+
+## v3.13 - Pro toolkit and Scan+ (additive)
+- 30+ sellable features that cost nothing to run, grouped as scan and automation, listing analysis (fraud check, fair price, negotiation helper, comparison, duplicate clusters, smart tags, viewing checklist), AI (analyst, translation), calculators (mortgage, affordability, purchase tax 2026, yield, vehicle cost, used price), CRM (pipeline, reminders, alert rules, broker clients), reports (market report, weekly brief, CSV, branded deal sheet, share pack, 4-language message templates).
+- Plans: starter < pro < vip, each tool has a monthly free trial for lower plans (the upsell hook). `PRO_OPEN=1` opens everything for testing. See `docs/PRO-TOOLKIT.md`.
+- Scan+ (`/api/pro/scan/plus`): query expansion, re-ranking, junk filtering, per-query report, engine advisor and a VIP auto-scan. Free engines only, title + snippet + link only.
+- Backend: `app/toolkit.py` and `app/scanplus.py` (pure, tested), `app/routes_v7.py` (routes + scheduler ticks), registered at the bottom of `main.py` in try/except. No new tables.
+- Frontend: new tab "כלי פרו" (`src/pro.tsx`, `src/styles.pro.css`).
+- Tests: `backend/tests/test_toolkit.py` (no deps) and `backend/tests/test_v7_api.py` (CI).
