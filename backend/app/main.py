@@ -463,3 +463,8 @@ try:   # v3.14 Scan Center: background deep scans with live progress (additive; 
     app.include_router(routes_v8.router)
 except Exception:
     import logging as _lg; _lg.getLogger("sniper").exception("routes_v8 not loaded (core API unaffected)")
+try:   # v3.16 profile + learned-memory sync + diagnostics (additive; no new tables)
+    from . import routes_v9
+    app.include_router(routes_v9.router)
+except Exception:
+    import logging as _lg; _lg.getLogger("sniper").exception("routes_v9 not loaded (core API unaffected)")

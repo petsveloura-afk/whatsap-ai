@@ -105,3 +105,8 @@ class AiMemory(Base):
     text: Mapped[str] = mapped_column(Text)
     embedding: Mapped[list] = mapped_column(JSON)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+# v3.16 performance indexes (mirrored by migration a9b8c7d6e5f4)
+from sqlalchemy import Index
+Index("ix_listings_user_status_created", Listing.user_id, Listing.status, Listing.created_at)
+Index("ix_listings_user_score", Listing.user_id, Listing.score)
