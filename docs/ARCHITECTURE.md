@@ -29,3 +29,9 @@ Limits: the worker runs inside the API process (single instance); WebSocket hub 
 
 ## v3.1 data flow additions
 Webhooks: scheduler fan-out (per endpoint cursor) -> `webhook_deliver` jobs -> signed POST. Market brain: `app/market.py` (median/quartiles, deal verdict, weekly trend) over the user's own listings plus opt-in anonymised pool.
+
+## v3.16 additions
+Profile and learned memory: `brain_plus.py` (pure: insights, completeness, memory statements, recency bonus) + `routes_v9.py` (API) -> `agent_memory` through the existing `agent.remember` (so near-duplicates are skipped and the per-user cap still applies).
+Data flow: listings the user saved / contacted / rejected -> `insights` (needs >= 2 agreeing listings) -> statements -> `agent.remember(kind="preference")` -> recalled by the agent with a bounded recency bonus.
+Operations: `scripts/verify_wiring.py` (UI calls vs routes, router modules loaded) and `GET /api/admin/diagnostics`. Indexes: migration `a9b8c7d6e5f4`.
+

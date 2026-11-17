@@ -3,14 +3,29 @@ Run tests: `cd backend && pip install -r requirements.txt && pytest -q`
 Run: `JWT_SECRET=<32+ chars> uvicorn app.main:app` → docs at /docs. Postgres needs `pip install psycopg[binary]`.
 
 ## Checklist
-- [x] Auth (register/login/me, bcrypt, JWT 30 min)  - [x] Searches CRUD-lite (soft delete, pause/resume)
-- [x] Extraction (rule-based HE/EN)  - [x] Dedup (per-user fingerprint)  - [x] Risk indicators  - [x] Weighted scoring (configurable)
-- [x] Per-user isolation (tested)  - [x] Docker/compose/.env
-- [x] RBAC (user/support/admin/super_admin), admin users+audit-logs, listing actions, data export/delete, Alembic initial migration  - [x] Refresh tokens (rotation + reuse detection), password reset (SMTP)  - [x] PayPal subscriptions (server-side checkout, verified+idempotent webhook, plan limits)  - [x] WhatsApp Cloud API notifications with consent  - [x] Request IDs, JSON logs, /api/admin/metrics, CORS allowlist  - [x] React/Vite PWA frontend (landing, auth, dashboard, live WS, admin users, billing)
+
+- [x] Auth (register/login/me, bcrypt, JWT 30 min)
+- [x] Searches CRUD-lite (soft delete, pause/resume)
+- [x] Extraction (rule-based HE/EN)
+- [x] Dedup (per-user fingerprint)
+- [x] Risk indicators
+- [x] Weighted scoring (configurable)
+- [x] Per-user isolation (tested)
+- [x] Docker/compose/.env
+- [x] RBAC (user/support/admin/super_admin), admin users+audit-logs, listing actions, data export/delete, Alembic initial migration
+- [x] Refresh tokens (rotation + reuse detection), password reset (SMTP)
+- [x] PayPal subscriptions (server-side checkout, verified+idempotent webhook, plan limits)
+- [x] WhatsApp Cloud API notifications with consent
+- [x] Request IDs, JSON logs, /api/admin/metrics, CORS allowlist
+- [x] React/Vite PWA frontend (landing, auth, dashboard, live WS, admin users, billing)
 - [ ] Remaining tables (images, embeddings...)
-- [x] Pipeline agents with real telemetry (/api/agents), WebSocket events (/ws, per-user), Telegram webhook with chat-ownership linking  - [x] Railway/GitHub config + CI
-- [ ] LLM extraction, embeddings/pgvector  - [ ] Redis workers, Scout source adapters (URL feeds)
-- [ ] WhatsApp, PayPal (need credentials)  - [ ] React frontend/PWA/landing/admin UI  - [ ] Observability
+- [x] Pipeline agents with real telemetry (/api/agents), WebSocket events (/ws, per-user), Telegram webhook with chat-ownership linking
+- [x] Railway/GitHub config + CI
+- [ ] LLM extraction, embeddings/pgvector
+- [ ] Redis workers, Scout source adapters (URL feeds)
+- [ ] WhatsApp, PayPal (need credentials)
+- [ ] React frontend/PWA/landing/admin UI
+- [ ] Observability
 
 ## Deploy: GitHub + Railway
 1. `git remote add origin <your repo> && git push -u origin main` (CI runs tests).
@@ -112,3 +127,13 @@ Public API keys, signed webhooks, referrals, share links, market intelligence ("
 - Backend: `app/toolkit.py` and `app/scanplus.py` (pure, tested), `app/routes_v7.py` (routes + scheduler ticks), registered at the bottom of `main.py` in try/except. No new tables.
 - Frontend: new tab "כלי פרו" (`src/pro.tsx`, `src/styles.pro.css`).
 - Tests: `backend/tests/test_toolkit.py` (no deps) and `backend/tests/test_v7_api.py` (CI).
+
+## v3.16 - profile, connections, wiring check (additive)
+- **Profile** (Account tab): identity, plan and search quota, activity stats, a profile-completeness score with next steps, and what the system *learned* from what you saved / contacted / rejected (`GET /api/profile`). Learned tastes are shown only when at least two real listings agree, with an honest confidence level.
+- **Memory sync**: `POST /api/profile/sync-memory` turns those learned tastes into long-term agent memories (prefix "נלמד מהפעולות שלך"). Idempotent, honours the privacy switch (409 when personalization is off). `agent.recall` now also gives a small, bounded bonus to fresher memories.
+- **Connections panel** (Account tab): WhatsApp notifications with explicit consent (number is shown masked; `DELETE /api/integrations/whatsapp/consent` withdraws it) and Telegram as a listing source (link code per search). These endpoints existed before but had no screen.
+- **Performance**: Alembic revision `a9b8c7d6e5f4` adds four indexes (listings by user/status/date and user/score, agent memory and history by user/date). Indexes only; safe to re-run. Service worker now caches the hashed build files.
+- **Text and RTL fixes**: Hebrew inside `<pre>` blocks (assistant answers, reports, digests, templates) was forced LTR + monospace; chat bubbles and text fields now pick direction per message; a doubled word on the landing page was fixed.
+- **Accessibility**: skip link, visible keyboard focus, error regions announced to screen readers, user settings for text size / contrast / reduced motion, forced-colors support, keyboard shortcuts (Alt+Shift+1..9), subtle entrance animations that respect reduced-motion. New in-app guide (`docs/USER-GUIDE.md` has the same content).
+- **Diagnostics**: `GET /api/admin/diagnostics` (staff) checks database, tables, migration head, key routes, queue, brains and flags in one call. `python scripts/verify_wiring.py` checks that every `/api` call in the React app exists in the backend and that every router module loaded (runs in CI).
+- New files: `backend/app/brain_plus.py`, `routes_v9.py`, `tests/test_v9_api.py`, `frontend/src/profile.tsx`, `guide.tsx`, `connect.tsx`, `styles.v3.5.css`, `scripts/verify_wiring.py`. No existing endpoint, table, panel or setting was removed or changed in behaviour.
