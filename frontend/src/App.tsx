@@ -6,6 +6,9 @@ import { AgentPanel, DiscoverPanel } from "./agent";
 import { Icon, Opportunities } from "./listings";
 import { ProPanel } from "./pro";
 import { fmtPrice } from "./lib/search";
+import { ProfilePanel } from "./profile";
+import { GuidePanel } from "./guide";
+import { ConnectPanel } from "./connect";
 const API: string = (import.meta as any).env.VITE_API_URL || "";
 let access = "";
 async function refresh(): Promise<boolean> {
@@ -35,12 +38,12 @@ function Landing({ onAuth }: any) {
       <input placeholder="אימייל" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} /><input type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} placeholder="סיסמה (10+ תווים)" value={pw} onChange={e => setPw(e.target.value)} />
       <button type="submit">{mode === "login" ? "כניסה" : "מתחילים למצוא הזדמנויות"}</button>
       <button type="button" className="ghost" onClick={() => setMode(mode === "login" ? "register" : "login")}>{mode === "login" ? "אין חשבון? הרשמה" : "יש חשבון? כניסה"}</button>
-      {mode === "login" && <button type="button" className="ghost" onClick={forgot}>שכחתי סיסמה</button>}<div className="err">{msg}</div></form></div>
+      {mode === "login" && <button type="button" className="ghost" onClick={forgot}>שכחתי סיסמה</button>}<div className="err" role="alert">{msg}</div></form></div>
     <div className="grid steps"><div className="card"><b>1. מגדירים</b>מה מחפשים, תקציב ואזור.</div><div className="card"><b>2. המערכת מנתחת</b>חילוץ, סינון כפילויות וציון התאמה.</div><div className="card"><b>3. מקבלים בזמן אמת</b>התראות דרך האתר, Telegram ו-WhatsApp.</div><div className="card"><b>4. יוצרים קשר מיד</b>טלפון, וואטסאפ, אימייל וקישור למודעה על כל תוצאה.</div></div>
     <div className="feat">
       <div className="card"><Icon n="bot" /><b>סוכן אישי</b><p>צ׳אט שמבין מה אתה מחפש, מבצע פעולות וזוכר העדפות.</p></div>
       <div className="card"><Icon n="radar" /><b>גילוי מהרשת</b><p>חיפוש דרך מנוע חיפוש רשמי והדבקה מרובה של מודעות.</p></div>
-      <div className="card"><Icon n="shield" /><b>פרטיות ואבטחה</b><p>הנתונים שלך שלך: ייצוא ומחיקה בלחיצה.</p></div>
+      <div className="card"><Icon n="shield" /><b>פרטיות ואבטחה</b><p>הנתונים שלך הם שלך: ייצוא ומחיקה בלחיצה.</p></div>
     </div></div>;
 }
 function Reset({ token }: any) {
@@ -58,6 +61,15 @@ function Dash({ user, onLogout }: any) {
   const [tab, setTab] = useState(() => { const h = location.hash.replace("#", ""); return tabs.some(t => t[0] === h) ? h : "overview"; });
   const go = (t: string) => { setTab(t); try { history.replaceState(null, "", "#" + t); } catch {} window.scrollTo({ top: 0 }); };
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(""), 2600); };
+  // v3.16 keyboard shortcuts: Alt+Shift+1..9 jumps to the n-th tab (Alt+digit alone is taken by some browsers for their own tabs)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
+      const m = /^Digit([1-9])$/.exec(e.code), t = m && tabs[Number(m[1]) - 1];
+      if (t) { e.preventDefault(); go(t[0]); }
+    };
+    window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
+  }, [isAdmin]);
   const load = useCallback(async () => {
     try {
       const [s, l, o, a, b] = await Promise.all([api("/api/searches"), api("/api/listings"), api("/api/dashboard/overview"), api("/api/agents"), api("/api/billing/subscription")]);
@@ -87,14 +99,15 @@ function Dash({ user, onLogout }: any) {
   const planLabel = ({ starter: "Starter", pro: "Pro", vip: "VIP" } as any)[sub.plan] || sub.plan || "-";
   const kpis: [string, any, string, string][] = [["סה״כ הזדמנויות", ov.total_listings, "layers", "var(--cy)"], ["התאמות גבוהות", ov.high_quality, "star", "var(--gr)"], ["סוננו", ov.filtered_out, "shield", "var(--pk)"], ["חיפושים פעילים", ov.active_searches, "radar", "var(--vi)"]];
   return <div className="shell">
+    <a className="skip-link" href="#main" onClick={e => { e.preventDefault(); document.getElementById("main")?.focus(); }}>דלג לתוכן הראשי</a>
     <aside className="side"><h1 className="brand">Smart Sniper AI</h1>
       <nav className="nav" aria-label="ניווט ראשי">{tabs.map(([k, v, ic]) => <button key={k} aria-current={tab === k ? "page" : undefined} onClick={() => go(k)}><Icon n={ic} />{v}{k === "opps" && newCount > 0 && <span className="badge">{newCount}</span>}</button>)}</nav>
       <div className="me-box"><b>{user.email}</b><span>חבילה: <span className="plan">{planLabel}</span></span><span className="live"><i className={"dot " + (live ? "on" : "off")} /><span className={live ? "ok" : "err"}>{live ? "חי" : "לא מחובר"}</span></span></div>
       <button className="ghost side-foot" onClick={logout}><Icon n="logout" /> יציאה</button></aside>
-    <main className="main">
+    <main className="main" id="main" tabIndex={-1}>
       <header className="top"><div className="who"><span className="live"><i className={"dot " + (live ? "on" : "off")} /><span className={live ? "ok" : "err"}>{live ? "חי" : "לא מחובר"}</span></span><span>{user.email}</span><span>חבילה: <span className="plan">{planLabel}</span></span></div>
         <div className="who"><button className="ghost sm" onClick={load}><Icon n="bolt" /> רענן</button><button className="ghost sm" onClick={logout}><Icon n="logout" /> יציאה</button></div></header>
-      <div className="err">{msg}</div>
+      <div className="err" role="alert">{msg}</div>
 
       <section {...show("overview")}>
         <div className="tab-h"><div><h2>שלום, הנה מה שקורה עכשיו</h2><p>סיכום חי של ההזדמנויות, הסוכנים וההתראות שלך.</p></div><button onClick={() => go("opps")}><Icon n="target" /> לכל ההזדמנויות</button></div>
@@ -144,10 +157,13 @@ function Dash({ user, onLogout }: any) {
       </section>
 
       <section {...show("account")}>
-        <div className="tab-h"><div><h2>החשבון</h2><p>מנוי, פרטיות, זיכרון וכלים למפתחים.</p></div></div>
+        <div className="tab-h"><div><h2>החשבון</h2><p>פרופיל, מנוי, פרטיות, זיכרון, מדריך וכלים למפתחים.</p></div></div>
+        <ProfilePanel api={api} onNavigate={go} />
+        <ConnectPanel api={api} searches={searches} />
         <div className="card"><h3>מנוי</h3><div className="plans">{[["pro", "Pro", "99", true], ["vip", "VIP", "149", false]].map(([k, n, p, hot]: any) => <div className={"plan-card" + (hot ? " hot" : "")} key={k}><b>{n}</b><span className="pr">{p} ₪</span><button onClick={() => act(async () => { const r = await api("/api/billing/checkout", { method: "POST", body: { plan: k } }); location.href = r.approve_url; })}>{n} {p} ₪</button></div>)}</div><div className="faint">החיוב דרך PayPal; החשבון מופעל רק לאחר אישור שרת מאומת.</div></div>
         <MemoryPanel api={api} onDeleted={() => { sessionStorage.removeItem("rt"); access = ""; onLogout(); }} />
         <GrowthPanel api={api} />
+        <GuidePanel onNavigate={go} tabs={tabs} />
         <div className="card install"><Icon n="download" /><div>התקנה כאפליקציה: ב-Android/Chrome תפריט ← "התקן אפליקציה". ב-iPhone: שיתוף ← "הוסף למסך הבית".</div></div>
       </section>
 
