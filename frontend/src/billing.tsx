@@ -31,7 +31,7 @@ function loadSdk(clientId: string, currency: string): Promise<any> {
   sdkKey = key;
   sdkPromise = new Promise((resolve, reject) => {
     const w = window as any, s = document.createElement("script");
-    s.src = "https://www.paypal.com/sdk/js?client-id=" + encodeURIComponent(clientId) + "&components=buttons,card-fields&currency=" + encodeURIComponent(currency) + "&intent=capture&locale=he_IL";
+    s.src = "https://www.paypal.com/sdk/js?client-id=" + encodeURIComponent(clientId) + "&components=buttons,card-fields&enable-funding=card&disable-funding=paylater,venmo,credit&currency=" + encodeURIComponent(currency) + "&intent=capture&locale=he_IL";
     s.async = true;
     s.onload = () => (w.paypal ? resolve(w.paypal) : reject(new Error("paypal sdk missing")));
     s.onerror = () => { sdkPromise = null; reject(new Error("paypal sdk blocked")); };
@@ -41,7 +41,7 @@ function loadSdk(clientId: string, currency: string): Promise<any> {
 }
 
 function PayBox({ api, cfg, plan, period, amount, onCaptured }: any) {
-  const [sdk, setSdk] = useState("loading"), [method, setMethod] = useState(cfg.cards ? "card" : "paypal");
+  const [sdk, setSdk] = useState("loading"), [method, setMethod] = useState("paypal"), [inline, setInline] = useState(false);
   const [cardOk, setCardOk] = useState(true), [busy, setBusy] = useState(false), [err, setErr] = useState(""), [retry, setRetry] = useState("");
   const cf = useRef<any>(null);
   const capture = useCallback(async (orderId: string) => {
@@ -54,7 +54,12 @@ function PayBox({ api, cfg, plan, period, amount, onCaptured }: any) {
 
   useEffect(() => {
     let off = false;
-    loadSdk(cfg.paypal.client_id, cfg.currency).then(() => { if (!off) setSdk("ready"); }).catch(() => { if (!off) setSdk("error"); });
+    loadSdk(cfg.paypal.client_id, cfg.currency).then((pp: any) => {
+      if (off) return;
+      // the inline card form is offered ONLY when the PayPal business account really supports it; otherwise it stays hidden
+      try { setInline(!!cfg.cards && !!pp.CardFields({ createOrder: () => "", onApprove: () => {} }).isEligible()); } catch { setInline(false); }
+      setSdk("ready");
+    }).catch(() => { if (!off) setSdk("error"); });
     return () => { off = true; };
   }, []);
 
@@ -79,10 +84,10 @@ function PayBox({ api, cfg, plan, period, amount, onCaptured }: any) {
         cf.current = inst; undo.push(() => { cf.current = null; try { inst.close && inst.close(); } catch {} });
       } else {
         const common = { createOrder: order("paypal"), onApprove: approve, onError: fail, onCancel: () => { if (alive) { setErr("התשלום בוטל. לא חויבתם."); setBusy(false); } } };
-        const b = pp.Buttons({ ...common, style: { layout: "vertical", shape: "pill", label: "pay", height: 46 } });
+        const b = pp.Buttons({ ...common, fundingSource: pp.FUNDING ? pp.FUNDING.PAYPAL : undefined, style: { layout: "vertical", shape: "pill", label: "pay", height: 48 } });
         if (b.isEligible()) { b.render("#pp-buttons"); undo.push(() => { try { b.close(); } catch {} }); }
         if (pp.FUNDING && pp.FUNDING.CARD) {   // PayPal-hosted guest card form: also no PayPal login needed
-          const g = pp.Buttons({ ...common, fundingSource: pp.FUNDING.CARD, style: { layout: "vertical", shape: "pill", height: 46 } });
+          const g = pp.Buttons({ ...common, fundingSource: pp.FUNDING.CARD, style: { layout: "vertical", shape: "pill", color: "black", label: "pay", height: 48 } });
           if (g.isEligible()) { g.render("#pp-guest"); undo.push(() => { try { g.close(); } catch {} }); }
         }
       }
@@ -99,21 +104,27 @@ function PayBox({ api, cfg, plan, period, amount, onCaptured }: any) {
 
   return <div className="pay-box">
     <div className="pay-tabs" role="tablist" aria-label="אמצעי תשלום">
-      {cfg.cards && <button role="tab" aria-selected={method === "card"} className={"ghost" + (method === "card" ? " on" : "")} onClick={() => { setErr(""); setMethod("card"); }}>כרטיס אשראי / דביט</button>}
-      <button role="tab" aria-selected={method === "paypal"} className={"ghost" + (method === "paypal" ? " on" : "")} onClick={() => { setErr(""); setMethod("paypal"); }}>PayPal</button>
+      {inline && <>
+        <button role="tab" aria-selected={method === "paypal"} className={"ghost" + (method === "paypal" ? " on" : "")} onClick={() => { setErr(""); setMethod("paypal"); }}>PayPal / כרטיס</button>
+        <button role="tab" aria-selected={method === "card"} className={"ghost" + (method === "card" ? " on" : "")} onClick={() => { setErr(""); setMethod("card"); }}>הזנת כרטיס כאן</button>
+      </>}
     </div>
     {sdk === "loading" && <p className="faint" role="status">טוען טופס תשלום מאובטח…</p>}
     {sdk === "error" && <p className="err" role="alert">לא הצלחנו לטעון את שירות התשלום של PayPal. בדקו חיבור לרשת / חוסם פרסומות ורעננו את הדף.</p>}
-    {sdk === "ready" && method === "card" && (cardOk
-      ? <div className="pay-card">
+    {sdk === "ready" && method === "card" && inline && <div className="pay-card">
         <span className="pp-lbl">שם על הכרטיס</span><div id="pp-name" className="pp-field" />
         <span className="pp-lbl">מספר כרטיס</span><div id="pp-number" className="pp-field" />
         <div className="pp-row"><div><span className="pp-lbl">תוקף</span><div id="pp-expiry" className="pp-field" /></div><div><span className="pp-lbl">קוד אבטחה (CVV)</span><div id="pp-cvv" className="pp-field" /></div></div>
         <button disabled={busy} onClick={submit}>{busy ? "מעבד תשלום…" : `שלם ${money(amount, cfg.currency)}`}</button>
-      </div>
-      : <div className="note-warn" role="alert">הזנת כרטיס ישירות בדף אינה פעילה כרגע בחשבון ה-PayPal של העסק. אפשר לשלם דרך לשונית PayPal (כולל תשלום בכרטיס בלי חשבון PayPal).</div>)}
-    {sdk === "ready" && method === "paypal" && <div className={busy ? "pay-wait" : ""}><div id="pp-buttons" /><div id="pp-guest" /></div>}
-    {busy && method === "paypal" && <p className="faint" role="status">מאמתים את התשלום…</p>}
+      </div>}
+    {sdk === "ready" && method === "paypal" && <div className={"pay-methods" + (busy ? " pay-wait" : "")}>
+      <span className="pay-lbl">בחרו אמצעי תשלום · {money(amount, cfg.currency)}</span>
+      <div id="pp-buttons" />
+      <div className="pay-or" aria-hidden="true"><span>או</span></div>
+      <span className="pay-lbl">תשלום בכרטיס אשראי / דביט, בלי חשבון PayPal</span>
+      <div id="pp-guest" />
+    </div>}
+    {busy && <p className="faint" role="status">מאמתים את התשלום…</p>}
     {err && <div className="err" role="alert">{err}</div>}
     {retry && <button className="ghost" disabled={busy} onClick={() => capRef.current(retry)}>בדיקת מצב התשלום</button>}
     <p className="faint pay-trust"><Icon n="shield" /> פרטי הכרטיס מוזנים בשדות המאובטחים של PayPal ואינם עוברים דרך השרתים שלנו. החבילה מופעלת רק אחרי אישור התשלום.</p>

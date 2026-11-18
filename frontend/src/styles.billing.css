@@ -28,3 +28,12 @@
 .modal-box{inline-size:min(720px,100%);block-size:min(92vh,900px);display:flex;flex-direction:column;gap:.5rem;background:var(--surface-s);border:1px solid var(--line-s);border-radius:var(--r);padding:.7rem}
 .modal-box iframe{flex:1;inline-size:100%;border:0;border-radius:var(--r-s);background:#fff}
 @media (max-width:600px){.pp-row{grid-template-columns:1fr}.billing .pay-sum{flex-direction:column;align-items:stretch}}
+
+/* v3.16: one clear PayPal + card view, mobile first (>=44px touch targets, full-width PayPal buttons) */
+.pay-methods{display:grid;gap:.5rem;max-inline-size:480px}
+.pay-lbl{font-size:.9rem;color:var(--mut);margin-top:.3rem}
+.pay-or{display:flex;align-items:center;gap:.7rem;color:var(--mut);font-size:.85rem;margin:.2rem 0}
+.pay-or::before,.pay-or::after{content:"";flex:1;border-top:1px solid var(--line-s)}
+.pay-methods #pp-buttons,.pay-methods #pp-guest{max-inline-size:none;margin-top:0;min-block-size:48px}
+.billing .pay-tabs .ghost{min-block-size:44px}
+@media (max-width:600px){.pay-methods,.pay-card{max-inline-size:none}.billing .pay-tabs .ghost{flex:1 1 45%}.billing .plan-card button{min-block-size:46px}}
