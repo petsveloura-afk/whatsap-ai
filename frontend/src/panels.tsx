@@ -47,16 +47,27 @@ export function SourcesPanel({ api, searches }: { api: Api; searches: any[] }) {
 /** Personal memory controls + data export + account deletion. */
 export function MemoryPanel({ api, onDeleted }: { api: Api; onDeleted: () => void }) {
   const [m, setM] = useState<any>({ items: [], personalization_enabled: true }), [msg, setMsg] = useState("");
+  const [showAll, setShowAll] = useState(false);
   const load = useCallback(async () => { try { setM(await api("/api/memory")); } catch (e: any) { setMsg(e.message); } }, []);
   useEffect(() => { load(); }, []);
   const act = async (fn: () => Promise<any>) => { try { setMsg(""); await fn(); await load(); } catch (e: any) { setMsg(e.message); } };
   const exportData = () => act(async () => { const d = await api("/api/me/export"); const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(d, null, 2)], { type: "application/json" })); a.download = "my-data.json"; a.click(); });
   return <div className="card"><h3>זיכרון אישי ופרטיות</h3>
     <label><input type="checkbox" checked={m.personalization_enabled} onChange={e => act(() => api("/api/memory/preferences", { method: "PUT", body: { personalization_enabled: e.target.checked } }))} /> התאמה אישית פעילה</label>
-    {m.items.map((i: any) => <div key={i.id}>{i.kind === "saved" ? "👍" : "👎"} {i.text} <button className="ghost" onClick={() => act(() => api(`/api/memory/${i.id}`, { method: "DELETE" }))}>מחק</button></div>)}
-    <button className="ghost" onClick={() => act(() => api("/api/memory", { method: "DELETE" }))}>מחק את כל הזיכרון</button>
-    <button className="ghost" onClick={exportData}>ייצוא כל הנתונים שלי</button>
-    <button className="ghost" onClick={() => { if (confirm("למחוק את החשבון וכל הנתונים? הפעולה אינה הפיכה.")) act(async () => { await api("/api/me", { method: "DELETE" }); onDeleted(); }); }}>מחק חשבון</button>
+    <div className={"mem-list" + (showAll ? " open" : "")}>
+      {m.items.length === 0 && <p className="faint">עוד אין זיכרון אישי. הוא נבנה מהסימונים שלך (👍 / 👎) על הזדמנויות.</p>}
+      {(showAll ? m.items : m.items.slice(0, 5)).map((i: any) => <div className="mem-row" key={i.id}>
+        <span className="mem-ico" aria-label={i.kind === "saved" ? "אהבתי" : "לא רלוונטי"}>{i.kind === "saved" ? "👍" : "👎"}</span>
+        <span className="mem-txt">{i.text}</span>
+        <button className="ghost" onClick={() => act(() => api(`/api/memory/${i.id}`, { method: "DELETE" }))}>מחק</button>
+      </div>)}
+    </div>
+    {m.items.length > 5 && <button className="ghost" onClick={() => setShowAll(v => !v)}>{showAll ? "הצג פחות" : `הצג את כל ${m.items.length} הפריטים`}</button>}
+    <div className="mem-actions">
+      <button className="ghost" onClick={exportData}>ייצוא כל הנתונים שלי</button>
+      <button className="ghost danger-zone" onClick={() => { if (confirm("למחוק את כל הזיכרון האישי?")) act(() => api("/api/memory", { method: "DELETE" })); }}>מחק את כל הזיכרון</button>
+      <button className="ghost danger-zone" onClick={() => { if (confirm("למחוק את החשבון וכל הנתונים? הפעולה אינה הפיכה.")) act(async () => { await api("/api/me", { method: "DELETE" }); onDeleted(); }); }}>מחק חשבון</button>
+    </div>
     <div className="err">{msg}</div></div>;
 }
 
