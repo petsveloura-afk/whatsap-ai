@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Wizard, SourcesPanel, MemoryPanel, Notifications, AdminPanel } from "./panels";
-import { VerifyBanner, VerifyLinkHandler } from "./verify";
+import { VerifyBanner, VerifyLinkHandler, VerifyGate } from "./verify";
 import { GrowthPanel } from "./growth";
 import { AssistantPanel } from "./assistant";
 import { AgentPanel, DiscoverPanel } from "./agent";
@@ -172,5 +172,7 @@ export default function App() {
   useEffect(() => { refresh().then(ok => ok ? api("/api/auth/me").then(setUser) : null).catch(() => {}).finally(() => setReady(true)); }, []);
   if (rt) return <Reset token={rt} />;
   if (!ready) return null;
-  return <><VerifyLinkHandler api={api} />{user ? <Dash user={user} onLogout={() => setUser(null)} /> : <Landing onAuth={setUser} />}</>;
+  return <><VerifyLinkHandler api={api} />{user ? (user.verification_required && user.email_verified === false
+    ? <VerifyGate api={api} user={user} onUser={setUser} onLogout={() => { try { sessionStorage.removeItem("rt"); } catch {} setUser(null); }} />
+    : <Dash user={user} onLogout={() => setUser(null)} />) : <Landing onAuth={setUser} />}</>;
 }

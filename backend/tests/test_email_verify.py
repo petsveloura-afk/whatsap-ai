@@ -71,3 +71,22 @@ def test_resend_invalidates_old_link_and_has_a_cooldown(smtp):
 def test_admin_is_exempt(smtp, monkeypatch):
     monkeypatch.setenv("SUPER_ADMIN_EMAILS", "evboss@x.com")
     h = _reg("evboss@x.com"); assert c.get("/api/auth/me", headers=h).json()["email_verified"] is True
+
+
+def test_unverified_user_is_locked_out_of_the_system(smtp):
+    h = _reg("ev-lock@x.com")
+    assert c.get("/api/auth/me", headers=h).status_code == 200            # allowed: the app needs it to show the gate
+    r = c.get("/api/searches", headers=h); assert r.status_code == 403 and "אימות" in r.json()["detail"]
+    assert c.post("/api/searches", headers=h, json={"name": "x", "category": "real_estate"}).status_code == 403
+    assert c.post("/api/auth/verify-email", json={"token": _token(smtp)}).status_code == 200
+    assert c.get("/api/searches", headers=h).status_code == 200            # unlocked right after confirmation
+
+
+def test_resend_api_is_used_when_key_is_set(monkeypatch):
+    calls = []
+    class R: status_code = 200; text = "ok"
+    monkeypatch.setenv("RESEND_API_KEY", "re_test"); monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.setattr(mail.httpx, "post", lambda url, json=None, headers=None, timeout=None: calls.append((url, json, headers)) or R())
+    assert mail.configured()
+    mail.send_mail("a@b.com", "subj", "body", "<b>x</b>")
+    assert calls[0][0].startswith("https://api.resend.com") and calls[0][1]["to"] == ["a@b.com"] and calls[0][2]["Authorization"] == "Bearer re_test"

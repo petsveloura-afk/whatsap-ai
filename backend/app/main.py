@@ -3,7 +3,7 @@ from fastapi import FastAPI, Depends, HTTPException, Header, WebSocket, WebSocke
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from .db import Base, engine, get_db
+from .db import Base, engine, get_db, SessionLocal
 from .models import UserPreference, AiMemory, User, SearchConfig, Listing, AuditLog, TelegramSource, RefreshToken, PasswordReset, Subscription, PaymentEvent
 from . import mail, paypal, whatsapp, llm, flags, pgvec, billing_core
 from .models2 import ListingScore, ListingDeduplication, UserListingAction, Notification, NotificationPreference, AiEmbedding, IngestionEvent
@@ -25,11 +25,15 @@ from .ratelimit import limiter
 from . import authsec
 app = FastAPI(title="Smart Sniper AI", version="3.0.0-core")
 if os.environ.get("AUTO_CREATE_TABLES") == "1": Base.metadata.create_all(engine)  # dev/tests only; production uses Alembic
-def current_user(authorization: str = Header(""), db: Session = Depends(get_db)) -> User:
+_UNVERIFIED_OK = {"/api/auth/me", "/api/auth/resend-verification", "/api/auth/logout-all"}   # all an unverified account may call
+def current_user(request: Request, authorization: str = Header(""), db: Session = Depends(get_db)) -> User:
     try: uid = read_token(authorization.removeprefix("Bearer "))
     except Exception: raise HTTPException(401, "Invalid or expired token")
     u = db.get(User, uid)
     if not u or not u.is_active: raise HTTPException(401, "Unknown or disabled user")
+    if request.url.path not in _UNVERIFIED_OK:   # hard gate: the system is unusable until the e-mail is confirmed
+        from . import emailverify as _ev
+        if not _ev.is_verified(u): raise HTTPException(403, "יש לאמת את כתובת האימייל כדי להשתמש במערכת. שלחנו אליכם קישור אימות.")
     return u
 class Cred(BaseModel):
     email: EmailStr
@@ -270,6 +274,10 @@ def pipeline(db, u, s, text, url):
 async def ws(sock: WebSocket, token: str = ""):
     try: uid = read_token(token)
     except Exception: await sock.close(code=4401); return
+    from . import emailverify as _ev
+    with SessionLocal() as _db:
+        _u = _db.get(User, uid)
+        if not _u or not _u.is_active or not _ev.is_verified(_u): await sock.close(code=4403); return
     await sock.accept()
     q = asyncio.Queue(); hub.add(uid, q, asyncio.get_running_loop())
     try:

@@ -21,7 +21,7 @@ NEED_MSG = "יש לאמת את כתובת האימייל לפני תשלום. ש
 
 
 def required() -> bool:
-    return bool(os.environ.get("SMTP_HOST")) and os.environ.get("REQUIRE_EMAIL_VERIFICATION", "1") != "0"
+    return mail.configured() and os.environ.get("REQUIRE_EMAIL_VERIFICATION", "1") != "0"
 
 
 def is_verified(u: User) -> bool:
@@ -55,7 +55,7 @@ def _send(to: str, link: str) -> None:
 
     def run():
         try: mail.send_mail(to, "אימות כתובת האימייל שלך - Smart Sniper AI", text, html)
-        except Exception as e: log.warning("verification mail failed: %s", type(e).__name__)
+        except Exception as e: log.error("verification mail to %s FAILED: %s: %s", to, type(e).__name__, str(e)[:300])
     threading.Thread(target=run, daemon=True).start()   # SMTP can take seconds: never make the user wait for it
 
 
@@ -84,7 +84,7 @@ def verify_email(b: VerifyIn, db: Session = Depends(get_db)):
 @router.post("/api/auth/resend-verification", status_code=202)
 def resend(u: User = Depends(_m.current_user), db: Session = Depends(get_db)):
     if is_verified(u): return {"ok": True, "already_verified": True}
-    if not os.environ.get("SMTP_HOST"): raise HTTPException(503, "שליחת מייל אינה מוגדרת במערכת")
+    if not mail.configured(): raise HTTPException(503, "שליחת מייל אינה מוגדרת במערכת")
     if not _m.limiter.allow("verify-cd:" + u.id, 1, 60): raise HTTPException(429, "המתינו דקה לפני בקשה נוספת")
     if not _m.limiter.allow("verify-hr:" + u.id, 5, 3600): raise HTTPException(429, "יותר מדי בקשות. נסו שוב מאוחר יותר")
     _send(u.email, _link(issue(db, u)))

@@ -36,3 +36,27 @@ export function VerifyBanner({ api, user, flash }: { api: Api; user: any; flash:
     <div className="verify-act"><button disabled={busy || wait > 0} onClick={resend}>{wait > 0 ? `שליחה חוזרת בעוד ${wait} ש׳` : "שלחו לי שוב"}</button><button className="ghost" onClick={refresh}>כבר אימתתי</button></div>
   </div>;
 }
+
+/** Full-screen gate: an unverified account sees only this until the e-mail is confirmed (the API refuses everything else with 403). */
+export function VerifyGate({ api, user, onUser, onLogout }: { api: Api; user: any; onUser: (u: any) => void; onLogout: () => void }) {
+  const [wait, setWait] = useState(0), [busy, setBusy] = useState(false), [note, setNote] = useState("");
+  const refresh = () => api("/api/auth/me").then((m: any) => { if (m.email_verified !== false) onUser(m); else setNote("האימייל עדיין לא אומת. פתחו את הקישור שנשלח אליכם."); }).catch(() => {});
+  useEffect(() => { window.addEventListener("email-verified", refresh); return () => window.removeEventListener("email-verified", refresh); }, []);
+  useEffect(() => { if (wait <= 0) return; const id = setTimeout(() => setWait(wait - 1), 1000); return () => clearTimeout(id); }, [wait]);
+  const resend = async () => {
+    setBusy(true);
+    try { await api("/api/auth/resend-verification", { method: "POST" }); setNote("שלחנו קישור חדש. בדקו גם בתיקיית הספאם."); setWait(60); }
+    catch (e: any) { setNote(e?.message || "לא הצלחנו לשלוח. נסו שוב בעוד רגע."); }
+    finally { setBusy(false); }
+  };
+  return <div className="wrap card" style={{ maxWidth: 520, margin: "10vh auto", textAlign: "center" }} role="status">
+    <h2>אמתו את כתובת האימייל</h2>
+    <p>שלחנו קישור אימות אל <b dir="ltr">{user.email}</b>. אחרי הלחיצה על הקישור תיכנסו למערכת.</p>
+    {note && <p className="hint warn">{note}</p>}
+    <div className="verify-act" style={{ justifyContent: "center" }}>
+      <button disabled={busy || wait > 0} onClick={resend}>{wait > 0 ? `שליחה חוזרת בעוד ${wait} ש׳` : "שלחו לי שוב"}</button>
+      <button className="ghost" onClick={refresh}>כבר אימתתי</button>
+      <button className="ghost" onClick={onLogout}>יציאה</button>
+    </div>
+  </div>;
+}
