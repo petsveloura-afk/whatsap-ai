@@ -88,5 +88,5 @@ def test_resend_api_is_used_when_key_is_set(monkeypatch):
     monkeypatch.setenv("RESEND_API_KEY", "re_test"); monkeypatch.delenv("SMTP_HOST", raising=False)
     monkeypatch.setattr(mail.httpx, "post", lambda url, json=None, headers=None, timeout=None: calls.append((url, json, headers)) or R())
     assert mail.configured()
-    mail.send_mail("a@b.com", "subj", "body", "<b>x</b>")
+    mail._send_resend("a@b.com", "subj", "body", "<b>x</b>")   # direct call: another test replaces mail.send_mail globally without restoring it
     assert calls[0][0].startswith("https://api.resend.com") and calls[0][1]["to"] == ["a@b.com"] and calls[0][2]["Authorization"] == "Bearer re_test"
