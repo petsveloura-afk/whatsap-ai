@@ -85,6 +85,36 @@ class Subscription(Base):
     plan: Mapped[str] = mapped_column(String(20), default="starter")
     status: Mapped[str] = mapped_column(String(20), default="none")
     paypal_subscription_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    # v3.15: prepaid (card / one-time PayPal) access. NULL = no expiry (recurring PayPal subscription managed by webhooks).
+    current_period_end: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    billing_period: Mapped[str | None] = mapped_column(String(10), nullable=True)  # monthly | yearly
+    renewal_reminded_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+class Payment(Base):
+    """v3.15: one row per payment attempt/receipt. Deliberately has NO foreign key and NO column named user_id:
+    accounting records must be kept (7 years in Israel) even after the customer deletes the account, so the generic
+    account purge must not remove them. The customer's e-mail is snapshotted for the receipt."""
+    __tablename__ = "payments"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
+    customer_id: Mapped[str] = mapped_column(String(36), index=True)
+    customer_email: Mapped[str] = mapped_column(String(255))
+    plan: Mapped[str] = mapped_column(String(20))
+    period: Mapped[str] = mapped_column(String(10))            # monthly | yearly
+    amount: Mapped[str] = mapped_column(String(16))            # decimal string, e.g. "99.00" (never a float)
+    currency: Mapped[str] = mapped_column(String(3), default="ILS")
+    method: Mapped[str] = mapped_column(String(16), default="card")   # card | paypal | subscription
+    status: Mapped[str] = mapped_column(String(16), default="created", index=True)  # created | pending | completed | failed | refunded
+    paypal_order_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    paypal_capture_id: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    payer_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    card_brand: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    card_last4: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    receipt_no: Mapped[str | None] = mapped_column(String(32), unique=True, nullable=True)
+    period_start: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    period_end: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    refunded_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    paid_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 class PaymentEvent(Base):
     __tablename__ = "payment_transactions"
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
@@ -105,8 +135,3 @@ class AiMemory(Base):
     text: Mapped[str] = mapped_column(Text)
     embedding: Mapped[list] = mapped_column(JSON)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
-
-# v3.16 performance indexes (mirrored by migration a9b8c7d6e5f4)
-from sqlalchemy import Index
-Index("ix_listings_user_status_created", Listing.user_id, Listing.status, Listing.created_at)
-Index("ix_listings_user_score", Listing.user_id, Listing.score)

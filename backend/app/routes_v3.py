@@ -311,7 +311,10 @@ async def edge(request: Request, call_next):
 
 # ================= wiring (called once from main.py) =================
 def housekeeping(db: Session) -> dict:
-    return {"recovered": scale.recover_stale(db), "rate_hits_pruned": prune(db, 90000)}
+    out = {"recovered": scale.recover_stale(db), "rate_hits_pruned": prune(db, 90000)}
+    try: from . import billing; out["billing"] = billing.housekeeping(db)   # v3.15: renewal reminders + abandoned payment attempts (isolated: never blocks the rest)
+    except Exception as e: db.rollback(); log.warning("billing housekeeping failed: %s", type(e).__name__)
+    return out
 def tick(db: Session) -> dict:
     """One scheduler pass (idempotent; safe if several instances run it). Each step is isolated so one failure doesn't block the rest."""
     out = {}

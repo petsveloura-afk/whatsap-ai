@@ -180,15 +180,16 @@ def agent_events(u: User = Depends(need(*STAFF)), db: Session = Depends(get_db))
 @router.get("/api/admin/overview")
 def admin_overview(a: User = Depends(need(*STAFF)), db: Session = Depends(get_db)):
     cnt = lambda q: db.scalar(select(func.count()).select_from(q.subquery()))
-    active = db.scalars(select(Subscription).where(Subscription.status == "active")).all()
+    from . import billing_core as _bc
+    active = [s for s in db.scalars(select(Subscription).where(Subscription.status == "active")).all() if not _bc.expired(s.current_period_end)]   # prepaid plans past their date no longer count
     return {"users": cnt(select(User)), "disabled_users": cnt(select(User).where(User.is_active.is_(False))),
-            "active_subscriptions": len(active), "mrr_ils": sum(PLANS[s.plan]["price"] for s in active if s.plan in PLANS),
+            "active_subscriptions": len(active), "mrr_ils": round(sum(_bc.monthly_value(s.plan, s.billing_period or "monthly", PLANS) for s in active if s.plan in PLANS), 2),
             "active_searches": cnt(select(SearchConfig).where(SearchConfig.active, SearchConfig.deleted_at.is_(None))),
             "listings": cnt(select(Listing)), "sources": cnt(select(DataSource)), "sources_in_error": cnt(select(DataSource).where(DataSource.status == "ERROR")),
             "queue": jobqueue.stats(db), "flags": flags.load(db)}
 @router.get("/api/admin/subscriptions")
 def admin_subs(a: User = Depends(need(*ADMIN)), db: Session = Depends(get_db)):
-    return [{"user_id": s.user_id, "plan": s.plan, "status": s.status} for s in db.scalars(select(Subscription))]
+    return [{"user_id": s.user_id, "plan": s.plan, "status": s.status, "period_end": str(s.current_period_end) if s.current_period_end else None} for s in db.scalars(select(Subscription))]
 @router.get("/api/admin/sources")
 def admin_sources(a: User = Depends(need(*STAFF)), db: Session = Depends(get_db)):
     return [{**_src_row(s), "user_id": s.user_id} for s in db.scalars(select(DataSource).limit(500))]

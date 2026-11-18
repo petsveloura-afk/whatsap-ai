@@ -1,11 +1,11 @@
 import asyncio, json, logging, hashlib, hmac, os, secrets, time, uuid, datetime as dt
-from fastapi import FastAPI, Depends, HTTPException, Header, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, Depends, HTTPException, Header, WebSocket, WebSocketDisconnect, Request, BackgroundTasks
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from .db import Base, engine, get_db
 from .models import UserPreference, AiMemory, User, SearchConfig, Listing, AuditLog, TelegramSource, RefreshToken, PasswordReset, Subscription, PaymentEvent
-from . import mail, paypal, whatsapp, llm, flags, pgvec
+from . import mail, paypal, whatsapp, llm, flags, pgvec, billing_core
 from .models2 import ListingScore, ListingDeduplication, UserListingAction, Notification, NotificationPreference, AiEmbedding, IngestionEvent
 from fastapi.middleware.cors import CORSMiddleware
 from .events import hub, STATS
@@ -355,12 +355,16 @@ def search_cap(db, u) -> int:
     return 10**6 if u.role in ("admin", "super_admin") else PLANS[_plan(db, u)]["max_searches"]
 def _sub(db, u): return db.scalar(select(Subscription).where(Subscription.user_id == u.id))
 def _plan(db, u):
-    s = _sub(db, u); return s.plan if s and s.status == "active" else "starter"
+    s = _sub(db, u)
+    if not s or s.status != "active" or billing_core.expired(s.current_period_end): return "starter"   # prepaid (card) access ends on its date
+    return s.plan
 @app.get("/api/billing/plans")
 def plans(): return [{"id": k, **v, "currency": "ILS", "available": k == "starter" or (paypal.configured() and bool(paypal.plan_ids()[k]))} for k, v in PLANS.items()]
 @app.get("/api/billing/subscription")
 def my_sub(u: User = Depends(current_user), db: Session = Depends(get_db)):
-    s = _sub(db, u); return {"plan": _plan(db, u), "status": s.status if s else "none"}
+    s = _sub(db, u); end = s.current_period_end if s else None
+    return {"plan": _plan(db, u), "status": s.status if s else "none", "period_end": str(end) if end else None, "billing_period": s.billing_period if s else None,
+            "expired": bool(s and s.status == "active" and billing_core.expired(end)), "recurring": bool(s and s.status == "active" and end is None and s.paypal_subscription_id)}
 class CheckoutIn(BaseModel): plan: str = Field(pattern="^(pro|vip)$")
 @app.post("/api/billing/checkout")
 def checkout(b: CheckoutIn, u: User = Depends(current_user), db: Session = Depends(get_db)):
@@ -375,10 +379,15 @@ def checkout(b: CheckoutIn, u: User = Depends(current_user), db: Session = Depen
 def cancel(u: User = Depends(current_user), db: Session = Depends(get_db)):
     s = _sub(db, u)
     if not s or s.status != "active": raise HTTPException(409, "No active subscription")
-    paypal.cancel_subscription(s.paypal_subscription_id); return {"status": "cancellation requested; confirmed by webhook"}
+    if not s.paypal_subscription_id: raise HTTPException(409, "Prepaid plan does not renew automatically; it simply ends on its date")
+    try: paypal.cancel_subscription(s.paypal_subscription_id)
+    except Exception: raise HTTPException(502, "PayPal cancellation failed; try again")
+    return {"status": "cancellation requested; confirmed by webhook"}
 @app.post("/api/webhooks/paypal")
-async def pp_webhook(req: Request, db: Session = Depends(get_db)):
-    ev = await req.json()
+async def pp_webhook(req: Request, bg: BackgroundTasks, db: Session = Depends(get_db)):
+    try: ev = await req.json()
+    except Exception: raise HTTPException(400, "Invalid body")
+    if not isinstance(ev, dict): raise HTTPException(400, "Invalid body")
     if not paypal.verify_webhook({k.lower(): v for k, v in req.headers.items()}, ev): raise HTTPException(400, "Invalid signature")
     if not ev.get("id"): raise HTTPException(400, "Missing event id")
     if db.get(PaymentEvent, ev["id"]): return {"duplicate": True}
@@ -387,12 +396,17 @@ async def pp_webhook(req: Request, db: Session = Depends(get_db)):
         plan = next((k for k, v in paypal.plan_ids().items() if v and v == r.get("plan_id")), None)
         if plan:
             s = db.scalar(select(Subscription).where(Subscription.user_id == r["custom_id"])) or Subscription(user_id=r["custom_id"])
-            s.plan, s.status, s.paypal_subscription_id = plan, "active", r.get("id"); db.add(s)
+            s.plan, s.status, s.paypal_subscription_id = plan, "active", r.get("id"); s.current_period_end = None; db.add(s)   # recurring: no date cut-off
     elif t.startswith("BILLING.SUBSCRIPTION."):
         s = db.scalar(select(Subscription).where(Subscription.paypal_subscription_id == r.get("id")))
         new = {"CANCELLED": "canceled", "SUSPENDED": "canceled", "EXPIRED": "canceled", "PAYMENT.FAILED": "past_due"}.get(t.removeprefix("BILLING.SUBSCRIPTION."))
         if s and new: s.status = new
-    db.commit(); return {"ok": True}
+    jobs = []
+    try: from . import billing; jobs = billing.handle_webhook(db, t, r)   # v3.15: card/one-time payments, refunds, renewal receipts
+    except Exception as e: log.error("billing webhook handler failed: %s", type(e).__name__); db.rollback(); raise HTTPException(500, "Billing handler error")   # event NOT marked processed -> PayPal retries it
+    db.commit()
+    for j in jobs: bg.add_task(billing.send_job, j)
+    return {"ok": True}
 class WaIn(BaseModel):
     number: str = Field(pattern=r"^\+?\d{8,15}$")
     consent: bool
@@ -458,13 +472,13 @@ try:   # v3.13 pro toolkit + Scan+ (additive; no new tables)
     app.include_router(routes_v7.router)
 except Exception:
     import logging as _lg; _lg.getLogger("sniper").exception("routes_v7 not loaded (core API unaffected)")
+try:   # v3.15 payments: card (PayPal Card Fields) + PayPal checkout, receipts, refunds (additive; new table)
+    from . import routes_billing
+    app.include_router(routes_billing.router)
+except Exception:
+    import logging as _lg; _lg.getLogger("sniper").exception("routes_billing not loaded (core API unaffected)")
 try:   # v3.14 Scan Center: background deep scans with live progress (additive; no new tables)
     from . import routes_v8
     app.include_router(routes_v8.router)
 except Exception:
     import logging as _lg; _lg.getLogger("sniper").exception("routes_v8 not loaded (core API unaffected)")
-try:   # v3.16 profile + learned-memory sync + diagnostics (additive; no new tables)
-    from . import routes_v9
-    app.include_router(routes_v9.router)
-except Exception:
-    import logging as _lg; _lg.getLogger("sniper").exception("routes_v9 not loaded (core API unaffected)")

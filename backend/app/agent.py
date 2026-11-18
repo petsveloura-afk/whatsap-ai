@@ -82,23 +82,13 @@ def remember(db: Session, u: User, text: str, kind: str = "fact") -> dict:
     return {"saved": True, "id": m.id}
 
 
-def _recency(created_at, now) -> float:
-    try:
-        from .brain_plus import recency_boost
-        return recency_boost(created_at, now)
-    except Exception:
-        return 0.0
-
-
 def recall(db: Session, u: User, query: str, n: int = 8) -> list[AgentMemory]:
     rows = db.scalars(select(AgentMemory).where(AgentMemory.user_id == u.id)).all()
     if not rows: return []
     q = embed(query or "")
     boost = {"preference": 0.15, "goal": 0.15, "summary": 0.05, "fact": 0.0}
-    now = dt.datetime.now(dt.timezone.utc)
     ranked = sorted(rows, key=lambda m: -((cosine(q, m.embedding) if m.embedding else 0.0) + boost.get(m.kind, 0.0)
-                                          + 0.03 * min(m.uses or 0, 5)
-                                          + _recency(m.created_at, now)))   # v3.16: fresher memories win ties (bounded bonus, never an error)
+                                          + 0.03 * min(m.uses or 0, 5)))
     return ranked[:n]
 
 
