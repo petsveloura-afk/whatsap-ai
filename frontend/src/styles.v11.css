@@ -116,3 +116,25 @@ input:focus,select:focus,textarea:focus{border-color:var(--line-h);box-shadow:0 
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
   body::after{display:none}
 }
+
+/* ===== v12: category picker rendered in a portal (opens above all content) ===== */
+.catpick-pop{position:fixed;inset-inline:auto;inset-block:auto;z-index:2000;margin:0;padding:.7rem;display:flex;flex-direction:column;gap:.55rem;overflow:hidden;background:var(--surface-s);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border:1px solid var(--line-h);box-shadow:var(--sh),var(--glow);animation:catpick-in .18s var(--ease,ease) both;transform-origin:top center}
+.catpick-pop.up{transform-origin:bottom center}
+.catpick-pop.sheet{position:fixed;inset-inline:0;inset-block-end:0;border-radius:var(--r) var(--r) 0 0;padding-block-end:max(.9rem,env(safe-area-inset-bottom,0px));animation:catpick-sheet .26s var(--spring,ease) both}
+.catpick-scrim{position:fixed;inset:0;z-index:1999;background:rgba(2,6,16,.55);backdrop-filter:blur(3px);animation:catpick-fade .2s ease both}
+.catpick-head{display:flex;gap:.4rem;align-items:center}
+.catpick-head input{flex:1;margin:0;min-inline-size:0}
+.catpick-x{inline-size:44px;min-block-size:44px;padding:0;margin:0}
+.catpick-tabs{display:flex;gap:.3rem;overflow-x:auto;padding-block-end:.15rem;scrollbar-width:none;flex:none}
+.catpick-tabs::-webkit-scrollbar{display:none}
+.catpick-tabs .cat-chip{flex:none;white-space:nowrap}
+.catpick-pop .catpick-list{flex:1 1 auto;min-block-size:90px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.catpick-gh{position:sticky;inset-block-start:0;background:var(--surface-s);padding-block:.15rem;z-index:1}
+.catpick-empty{padding:1rem .2rem;text-align:center}
+.catpick-foot{font-size:.76rem;flex:none}
+.catpick-subs.in{flex:none;padding-block-start:.5rem;border-block-start:1px solid var(--line)}
+.cat-chip[aria-selected="true"]{box-shadow:0 0 0 1px var(--line-h)}
+@keyframes catpick-in{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes catpick-sheet{from{transform:translateY(100%)}to{transform:none}}
+@keyframes catpick-fade{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.catpick-pop,.catpick-scrim{animation:none}}

@@ -1,11 +1,11 @@
-"""Category registry: 42 new categories, original ones untouched, detection only fills gaps, API + scoring wiring."""
+"""Category registry: 51 new categories, original ones untouched, detection only fills gaps, API + scoring wiring."""
 import pytest
 from tests.test_core import c, tok
 from app import categories as C
 from app.extract import extract, detect_category
 ORIGINAL = {"real_estate", "vehicles", "electronics", "furniture", "business", "services", "other"}
 def test_counts_and_original_keys_kept():
-    assert len(C.NEW_KEYS) >= 40 and len(C.CATS) == 49 and ORIGINAL <= set(C.CATS) and not (ORIGINAL & set(C.NEW_KEYS))
+    assert len(C.NEW_KEYS) >= 40 and len(C.CATS) == 58 and ORIGINAL <= set(C.CATS) and not (ORIGINAL & set(C.NEW_KEYS))
     for k in ORIGINAL: assert C.CATS[k]["builtin"] and len(C.CATS[k]["subs"]) >= 3
 def test_every_category_is_complete():
     for k, v in C.CATS.items():
@@ -19,7 +19,10 @@ def test_registry_installed_into_existing_modules():
     assert "tickets" in discovery.SITES and "tickets" in scandeep.SITES and "tickets" in scanplus.SITE_PACK
 @pytest.mark.parametrize("text,cat", [("מוכר גיטרה אקוסטית כמעט חדשה", "music_instruments"), ("למכירה סירת מנוע 90 כוחות סוס", "boats"), ("אופניים חשמליים בחצי מחיר", "bicycles"),
     ("דרוש מפתח פרילנס משרה חלקית", "jobs"), ("צימר רומנטי עם ג'קוזי לסוף שבוע", "vacation_rentals"), ("כרטיסים להופעה ביום שישי", "tickets"),
-    ("לגו מארז חדש לילדים", "toys"), ("טרקטור חקלאי במצב מצוין", "industrial"), ("עסק למכירה בית קפה במרכז", "business_for_sale"), ("הליכון חשמלי ומשקולות", "fitness")])
+    ("לגו מארז חדש לילדים", "toys"), ("טרקטור חקלאי במצב מצוין", "industrial"), ("עסק למכירה בית קפה במרכז", "business_for_sale"), ("הליכון חשמלי ומשקולות", "fitness"),
+    ("חניה להשכרה בבניין חדש בתל אביב", "parking_storage"), ("השקעה בחו\"ל ויזה זהב ביוון", "intl_real_estate"), ("פאנלים סולאריים עם מהפך סולארי", "solar_energy"),
+    ("סט סירים וכלי מטבח חדש", "housewares"), ("קופה רושמת ומגרסת נייר", "office_equipment"), ("מוסך מומלץ בחולון", "auto_services"),
+    ("בניית אתר ודף נחיתה לעסקים", "digital_services"), ("בייביסיטר ומטפלת לילדים אחה\"צ", "childcare"), ("וטרינר ופנסיון לכלבים", "pet_services")])
 def test_new_categories_detected(text, cat): assert extract(text)["category"] == cat and detect_category(text) == cat
 @pytest.mark.parametrize("text,cat", [("דירת 3 חדרים בחולון, משופצת, ללא תיווך, 5,200 ש״ח.", "real_estate"), ("אייפון 13 128GB במצב מצוין", "electronics"),
     ("יונדאי i10 2019 יד ראשונה 60,000 ק״מ", "vehicles"), ("ספה פינתית 3 מושבים", "furniture")])
@@ -32,8 +35,8 @@ def test_compatible_relations():
     assert C.compatible("smartphones", "electronics") and C.compatible("electronics", "smartphones") and C.compatible("gaming", "computers")
     assert not C.compatible("pets", "electronics") and not C.compatible(None, "pets")
 def test_public_api():
-    r = c.get("/api/categories").json(); assert r["count"] == 49 and r["groups"] and any(i["key"] == "pets" and i["subs"] for i in r["items"])
-    assert len(c.get("/api/categories?full=false").json()["items"]) == 49
+    r = c.get("/api/categories").json(); assert r["count"] == 58 and r["groups"] and any(i["key"] == "pets" and i["subs"] for i in r["items"])
+    assert len(c.get("/api/categories?full=false").json()["items"]) == 58
     assert c.get("/api/categories/boats").json()["label"] == "כלי שיט" and c.get("/api/categories/nope").status_code == 404
     d = c.post("/api/categories/detect", json={"text": "מחפש שותף, יש חדר פנוי להשכרה בתל אביב"}).json(); assert d["category"] == "roommates"
 def test_nl_search_uses_new_categories():
