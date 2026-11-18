@@ -8,7 +8,8 @@
 | Privilege escalation | server-side RBAC; only super_admin changes roles; audit + admin_actions | implemented |
 | SSRF via user URLs | http(s) only, ports 80/443, no credentials, all resolved IPs must be public, redirects re-validated, 1 MB cap | implemented. Residual: DNS rebinding between check and connect |
 | XML bombs / XXE | DTD/entities rejected before parsing | implemented |
-| Fake payments | activation only from signature-verified PayPal webhook, idempotent | implemented, not tested against real PayPal |
+| Fake payments | recurring: activation only from signature-verified PayPal webhook, idempotent. Card/PayPal one-time: server-side price, server capture, status+amount+currency+payment-id verified, idempotent (PayPal-Request-Id), see docs/PAYMENTS.md | implemented, not tested against real PayPal |
+| Card data exposure | card typed into PayPal-hosted iframes; only brand + last 4 stored | implemented |
 | Telegram spoofing | webhook secret + `/link` ownership code | implemented |
 | Abuse of scraping | only user-supplied feeds, robots.txt respected, no auth/anti-bot bypass | implemented |
 | LLM data exposure | off by default; only listing text sent; output validated, fill-only | implemented |

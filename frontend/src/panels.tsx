@@ -92,7 +92,7 @@ export function AdminPanel({ api, role }: { api: Api; role: string }) {
     {tab === "events" && <table><tbody>{(d.events || []).map((e: any, i: number) => <tr key={i}><td>{e.agent}</td><td>{e.event}</td><td>{e.duration_ms ? Math.round(e.duration_ms) + "ms" : ""}</td><td>{e.detail}</td></tr>)}</tbody></table>}
     {tab === "brains" && <BrainsView api={api} data={d.brains} reload={load} setMsg={setMsg} />}
     {tab === "audit" && <table><tbody>{(d.audit || []).map((a: any, i: number) => <tr key={i}><td>{a.at}</td><td>{a.action}</td><td>{a.target}</td></tr>)}</tbody></table>}
-    {tab === "metrics" && d.metrics && <pre className="json" dir="ltr">{JSON.stringify(d.metrics, null, 2)}</pre>}
+    {tab === "metrics" && d.metrics && <pre>{JSON.stringify(d.metrics, null, 2)}</pre>}
     {tab === "settings" && d.settings && <div>
       {Object.entries(d.settings.flags).map(([k, v]: any) => <label key={k} style={{ display: "block" }}><input type="checkbox" checked={v} onChange={e => toggle(k, e.target.checked)} /> {{ llm_extraction: "המוח החכם: סוכן וחילוץ חכם (דורש לפחות מפתח חינמי אחד, ראה לשונית מוחות)", pgvector: "זיכרון pgvector (דורש Postgres עם USE_PGVECTOR=1)", maintenance_mode: "מצב תחזוקה" }[k as string] || k}</label>)}
       <div>LLM מוגדר בשרת: {d.settings.capabilities.llm_configured ? "כן" : "לא"} · pgvector בסביבה: {d.settings.capabilities.pgvector_env ? "כן" : "לא"}</div></div>}

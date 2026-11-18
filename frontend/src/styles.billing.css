@@ -1,0 +1,30 @@
+/* v3.15 payments UI. Uses only the existing design tokens, so dark/light themes keep working. */
+.billing .pay-tabs{display:flex;flex-wrap:wrap;gap:.4rem;margin:.5rem 0}
+.billing .pay-tabs .ghost.on{border-color:var(--line-h);background:var(--sig-soft);font-weight:700}
+.billing .sub-now{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem .9rem;padding:.7rem .9rem;margin:.4rem 0;border-radius:var(--r-s);background:var(--sig-soft);border:1px solid var(--line-h)}
+.billing .sub-now.warn{background:var(--warn-soft);border-color:rgba(251,191,36,.5)}
+.billing .pay-sum{display:flex;justify-content:space-between;align-items:center;gap:.8rem;flex-wrap:wrap;padding:.7rem .9rem;border-radius:var(--r-s);background:var(--sunken);border:1px solid var(--line)}
+.billing .pay-sum span{display:block}
+.pay-box{margin-top:.7rem}
+.pay-card{display:grid;gap:.35rem;max-inline-size:440px}
+.pp-lbl{font-size:.85rem;color:var(--mut);margin-top:.35rem}
+.pp-field{block-size:46px;border-radius:var(--r-s);border:1px solid var(--line-s);background:#fff;padding-inline:.6rem;overflow:hidden}
+.pp-field:focus-within{border-color:var(--line-h);box-shadow:var(--glow)}
+.pp-row{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}
+.pay-card>button{margin-top:.8rem;inline-size:100%;font-size:1.05rem}
+.pay-trust{display:flex;gap:.4rem;align-items:flex-start;margin-top:.9rem}
+.pay-wait{opacity:.6;pointer-events:none}
+#pp-buttons,#pp-guest{max-inline-size:440px;margin-top:.5rem}
+.note-warn{padding:.7rem .9rem;border-radius:var(--r-s);background:var(--warn-soft);border:1px solid rgba(251,191,36,.45);margin:.5rem 0}
+.pay-done{padding:1rem;margin:.6rem 0;border-radius:var(--r);background:rgba(52,211,153,.09);border:1px solid rgba(52,211,153,.4)}
+.pay-done h4{margin:.1rem 0 .4rem}
+.pay-h{margin:1.3rem 0 .4rem}
+.tbl-wrap{overflow-x:auto}
+.pay-tbl{inline-size:100%;border-collapse:collapse;font-size:.92rem}
+.pay-tbl th{text-align:start;color:var(--mut);font-weight:600;padding:.4rem .5rem;border-bottom:1px solid var(--line-s)}
+.pay-tbl td{padding:.5rem;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
+.mono{font-family:var(--mono)}
+.modal{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:1rem}
+.modal-box{inline-size:min(720px,100%);block-size:min(92vh,900px);display:flex;flex-direction:column;gap:.5rem;background:var(--surface-s);border:1px solid var(--line-s);border-radius:var(--r);padding:.7rem}
+.modal-box iframe{flex:1;inline-size:100%;border:0;border-radius:var(--r-s);background:#fff}
+@media (max-width:600px){.pp-row{grid-template-columns:1fr}.billing .pay-sum{flex-direction:column;align-items:stretch}}
