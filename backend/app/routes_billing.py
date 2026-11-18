@@ -44,7 +44,7 @@ def create_order(b: OrderIn, u: User = Depends(_m.current_user), db: Session = D
     """Creates the payment record + PayPal order. The amount is computed HERE from the plan table; the browser cannot influence it."""
     if not paypal.configured() or (b.method == "card" and not paypal.cards_enabled()): raise HTTPException(503, "אמצעי התשלום אינו זמין כרגע")
     _limit("order:" + u.id, 12, 600)
-    ok, why = bc.can_buy(billing.sub_view(billing.get_sub(db, u)), b.plan)
+    ok, why = bc.can_buy(billing.sub_view(billing.get_sub(db, u.id)), b.plan)
     if not ok: raise HTTPException(409, why)
     try: amount = bc.quote(b.plan, b.period, _m.PLANS)
     except ValueError: raise HTTPException(400, "Invalid plan")

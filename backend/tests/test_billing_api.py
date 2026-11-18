@@ -7,12 +7,15 @@ from app.db import SessionLocal
 from app.models import Payment, Subscription
 
 
+_SEQ = {"n": 0}   # module-wide: the SQLite DB is shared between tests, so fake PayPal order ids must never repeat
+
+
 @pytest.fixture(autouse=True)
 def fake_paypal(monkeypatch):
     for k, v in dict(PAYPAL_CLIENT_ID="cid", PAYPAL_SECRET="sec", PAYPAL_PLAN_PRO="P-PRO", PAYPAL_PLAN_VIP="P-VIP").items(): monkeypatch.setenv(k, v)   # undone after each test: other test files expect PayPal unconfigured
     st = {"n": 0, "amount_delta": "0", "decline": False, "orders": {}}
     def create_order(amount, currency, custom_id, invoice_id, description, request_id, card=False):
-        st["n"] += 1; oid = f"ORDER{st['n']:04d}XYZ"; st["orders"][oid] = {"amount": amount, "currency": currency, "custom_id": custom_id}; return oid
+        st["n"] += 1; _SEQ["n"] += 1; oid = f"ORDER{_SEQ['n']:04d}XYZ"; st["orders"][oid] = {"amount": amount, "currency": currency, "custom_id": custom_id}; return oid
     def capture_order(order_id, request_id):
         if st["decline"]: raise paypal.PayPalError(422, "INSTRUMENT_DECLINED", "declined", "dbg")
         o = st["orders"][order_id]

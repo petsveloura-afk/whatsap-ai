@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { CATEGORIES, toSearchBody, isHttpsUrl, fmtPrice } from "./lib/search";
+import { CategoryPicker } from "./categories";
 
 type Api = (path: string, o?: any) => Promise<any>;
 
@@ -17,7 +18,7 @@ export function Wizard({ api, onCreated }: { api: Api; onCreated: () => void }) 
     {p && <div>
       {res.clarifications.map((q: string) => <div className="risk" key={q}>❓ {q}</div>)}
       <div>שם: {p.name} · מיקום: {p.locations.join(", ") || "?"} · תקציב מקסימלי: {fmtPrice(p.max_price)} · מילות הדרה: {p.excluded_keywords.join(", ") || "-"}</div>
-      {!p.category && <select value={cat} onChange={e => setCat(e.target.value)}><option value="">בחר סוג</option>{Object.entries(CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>}
+      {!p.category && <CategoryPicker value={cat} onChange={(c) => setCat(c)} label="סוג" />}
       <button onClick={create} disabled={!p.category && !cat}>צור חיפוש</button>
     </div>}
     <div className="err">{msg}</div></div>;

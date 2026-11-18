@@ -2,6 +2,7 @@ import os
 os.environ["JWT_SECRET"] = "x" * 40
 os.environ["DATABASE_URL"] = "sqlite:///./test.db"
 os.environ["AUTO_CREATE_TABLES"] = "1"
+os.environ.setdefault("SIGNUP_LIMIT_PER_HOUR", "100000")   # the suite registers many users from one test IP
 if os.path.exists("test.db"): os.remove("test.db")
 from fastapi.testclient import TestClient
 from app.main import app

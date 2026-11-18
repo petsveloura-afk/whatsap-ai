@@ -14,10 +14,15 @@ from .extract import extract
 from .contacts import listing_card
 from .relevance import gate
 from .scoring import score, risks
+try:   # v10: category registry (additive). Must run BEFORE the names below are imported so they pick up the extended detectors.
+    from . import categories as _cats; _cats.install()
+except Exception:
+    import logging as _lg; _lg.getLogger("sniper").exception("categories not installed (original categories unaffected)")
 from .nlsearch import parse_search
 from .neardup import is_near_duplicate, embed
 from .memory import adjustment, MAX_MEMORIES
 from .ratelimit import limiter
+from . import authsec
 app = FastAPI(title="Smart Sniper AI", version="3.0.0-core")
 if os.environ.get("AUTO_CREATE_TABLES") == "1": Base.metadata.create_all(engine)  # dev/tests only; production uses Alembic
 def current_user(authorization: str = Header(""), db: Session = Depends(get_db)) -> User:
@@ -29,19 +34,36 @@ def current_user(authorization: str = Header(""), db: Session = Depends(get_db))
 class Cred(BaseModel):
     email: EmailStr
     password: str = Field(min_length=10)
+class RegIn(Cred):
+    website: str | None = Field(None, max_length=200)   # hidden bot trap: real people never fill it
+    accept_terms: bool | None = None
 @app.get("/api/health")
 def health(): return {"status": "ok"}
+_DUMMY_HASH = hash_pw("not-a-real-password-for-timing")   # unknown e-mails cost the same bcrypt time as known ones
+@app.get("/api/auth/policy")
+def auth_policy(): return authsec.policy()
 @app.post("/api/auth/register", status_code=201)
-def register(c: Cred, db: Session = Depends(get_db)):
-    if db.scalar(select(User).where(User.email == c.email.lower())): raise HTTPException(409, "Email already registered")
+def register(c: RegIn, request: Request, db: Session = Depends(get_db)):
+    email = c.email.lower()
+    if c.website: return {"id": str(uuid.uuid4()), "email": email}   # bot trap: pretend success, create nothing
+    if not authsec.signup_allowed(authsec.client_ip(request)): raise HTTPException(429, "יותר מדי הרשמות מכתובת זו. נסו שוב בעוד שעה")
+    ok, why = authsec.check_password(c.password, email)
+    if not ok: raise HTTPException(422, why)
+    if db.scalar(select(User).where(User.email == email)): raise HTTPException(409, "Email already registered")
     boot = [e.strip().lower() for e in os.environ.get("SUPER_ADMIN_EMAILS", "").split(",") if e.strip()]
-    u = User(email=c.email.lower(), password_hash=hash_pw(c.password), role="super_admin" if c.email.lower() in boot else "user"); db.add(u); db.commit()
+    u = User(email=email, password_hash=hash_pw(c.password), role="super_admin" if email in boot else "user"); db.add(u); db.commit()
+    audit(db, u, "auth.register", u.id); db.commit()
     return {"id": u.id, "email": u.email}
 @app.post("/api/auth/login")
 def login(c: Cred, request: Request, db: Session = Depends(get_db)):
-    if not limiter.allow("login:" + (request.client.host if request.client else "?") + ":" + c.email.lower(), 10, 300): raise HTTPException(429, "Too many attempts; try again later")
-    u = db.scalar(select(User).where(User.email == c.email.lower()))
-    if not u or not check_pw(c.password, u.password_hash): raise HTTPException(401, "Invalid credentials")
+    email = c.email.lower(); wait = authsec.locked_for(email)
+    if wait: raise HTTPException(429, f"החשבון ננעל זמנית אחרי ניסיונות כושלים. נסו שוב בעוד {max(1, wait // 60)} דקות", headers={"Retry-After": str(wait)})
+    if not limiter.allow("login:" + authsec.client_ip(request) + ":" + email, 10, 300): raise HTTPException(429, "Too many attempts; try again later")
+    u = db.scalar(select(User).where(User.email == email))
+    good = check_pw(c.password, u.password_hash if u else _DUMMY_HASH)   # always one bcrypt check: no timing difference for unknown accounts
+    if not u or not good or not u.is_active:
+        authsec.record_failure(email); raise HTTPException(401, "Invalid credentials")
+    authsec.record_success(email)
     return _issue(db, u.id)
 @app.get("/api/auth/me")
 def me(u: User = Depends(current_user)): return {"id": u.id, "email": u.email, "role": u.role}
@@ -330,6 +352,9 @@ def refresh(b: RefreshIn, db: Session = Depends(get_db)):
 def logout(b: RefreshIn, db: Session = Depends(get_db)):
     t = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == _h(b.refresh_token)))
     if t: t.revoked = True; db.commit()
+@app.post("/api/auth/logout-all", status_code=204)
+def logout_all(u: User = Depends(current_user), db: Session = Depends(get_db)):
+    _revoke_all(db, u.id); audit(db, u, "auth.logout_all", u.id); db.commit()
 class EmailIn(BaseModel): email: EmailStr
 @app.post("/api/auth/forgot-password", status_code=202)
 def forgot(b: EmailIn, db: Session = Depends(get_db)):
@@ -482,3 +507,16 @@ try:   # v3.14 Scan Center: background deep scans with live progress (additive; 
     app.include_router(routes_v8.router)
 except Exception:
     import logging as _lg; _lg.getLogger("sniper").exception("routes_v8 not loaded (core API unaffected)")
+try:   # v9 profile + diagnostics (additive): registered like every other optional router
+    from . import routes_v9
+    app.include_router(routes_v9.router)
+except Exception:
+    import logging as _lg; _lg.getLogger("sniper").exception("routes_v9 not loaded (core API unaffected)")
+try:   # v10 category API (public registry, no secrets)
+    from . import categories as _c2
+    app.include_router(_c2.router)
+except Exception:
+    import logging as _lg; _lg.getLogger("sniper").exception("categories router not loaded (core API unaffected)")
+# Outermost layer, added LAST so it wraps every other middleware: errors, 429s and preflights always get CORS headers.
+from .cors_outer import OuterCORS
+app.add_middleware(OuterCORS)

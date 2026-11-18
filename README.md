@@ -114,3 +114,7 @@ Public API keys, signed webhooks, referrals, share links, market intelligence ("
 - Tests: `backend/tests/test_toolkit.py` (no deps) and `backend/tests/test_v7_api.py` (CI).
 
 **v3.15 payments:** card payment without a PayPal login (PayPal Card Fields), PayPal checkout, receipts, refunds, admin payments view. Setup and caveats: `docs/PAYMENTS.md`.
+
+
+## Railway
+ראו [docs/DEPLOYMENT-RAILWAY.md](docs/DEPLOYMENT-RAILWAY.md) (מחליף את Render; קובצי Render נשארו ללא שינוי).

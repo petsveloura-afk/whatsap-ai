@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Icon } from "./listings";
 import { ScanCenter } from "./scan";
 import "./styles.pro.css";
+import { CategoryPicker } from "./categories";
 type Api = (path: string, o?: any) => Promise<any>;
 
 /** v3.13 Pro toolkit UI. Every tool talks to /api/pro/*; plan limits come from the server (402 with a Hebrew message). */
@@ -216,7 +217,7 @@ function Reports({ api, searches, onChanged }: any) {
   useEffect(() => { api("/api/pro/settings").then((r: any) => r.brand && setBrand(r.brand)).catch(() => {}); }, []);
   useEffect(() => { if (!sid && searches[0]) setSid(searches[0].id); }, [searches]);
   return <div className="pro"><Upsell msg={err} />{msg && <div className="pro-out">{msg}</div>}
-    <div className="pro-out"><b>דוח שוק</b><div className="pro-form"><label>קטגוריה<select value={cat} onChange={e => setCat(e.target.value)}><option value="real_estate">נדל״ן</option><option value="vehicles">רכב</option><option value="electronics">אלקטרוניקה</option><option value="furniture">ריהוט</option></select></label><label>עיר (אופציונלי)<input value={loc} onChange={e => setLoc(e.target.value)} placeholder="Holon" /></label>
+    <div className="pro-out"><b>דוח שוק</b><div className="pro-form"><label>קטגוריה<CategoryPicker value={cat} onChange={(c) => setCat(c)} /></label><label>עיר (אופציונלי)<input value={loc} onChange={e => setLoc(e.target.value)} placeholder="Holon" /></label>
       <button disabled={busy} onClick={() => run(async () => setRep(await api(`/api/pro/report/market?category=${cat}${loc ? "&location=" + encodeURIComponent(loc) : ""}`)))}>הפק דוח</button></div>
       {rep && <><View d={rep.overall} />{rep.sqm && <View d={{ "חציון למ״ר": rep.sqm.median, "מינימום למ״ר": rep.sqm.min, "מקסימום למ״ר": rep.sqm.max }} />}{rep.trend_he && <div className="sig">📈 מגמה: {rep.trend_he} ({rep.trend_pct}%)</div>}
         {rep.by_rooms.length > 0 && <table><thead><tr><th>חדרים</th><th>מודעות</th><th>חציון</th></tr></thead><tbody>{rep.by_rooms.map((r: any) => <tr key={r.key}><td>{r.key}</td><td>{r.n}</td><td>{fmt(r.median)} ₪</td></tr>)}</tbody></table>}

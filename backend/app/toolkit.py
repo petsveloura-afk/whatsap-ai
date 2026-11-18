@@ -469,7 +469,7 @@ def validate_rule(d: dict) -> dict:
     name = str(d.get("name") or "כלל").strip()[:60] or "כלל"; num = lambda k: (_n(d.get(k)) if d.get(k) not in (None, "") else None)
     kw = lambda k: [str(x).strip()[:40] for x in (d.get(k) or []) if str(x).strip()][:10]
     cat = d.get("category") or None
-    if cat not in (None, "real_estate", "vehicles", "electronics", "furniture"): raise ValueError("bad category")
+    if cat is not None and cat not in _known_cats(): raise ValueError("bad category")
     r = {"id": str(d.get("id") or "")[:36], "name": name, "active": bool(d.get("active", True)), "category": cat, "city": (str(d.get("city") or "").strip()[:60] or None), "min_score": int(_clamp(_n(d.get("min_score"), 0), 0, 100)),
          "min_price": num("min_price"), "max_price": num("max_price"), "rooms_min": num("rooms_min"), "rooms_max": num("rooms_max"), "keywords": kw("keywords"), "exclude": kw("exclude"),
          "verdict": d.get("verdict") if d.get("verdict") in ("good_deal", "fair", "any", None) else None}
@@ -502,7 +502,7 @@ def validate_client(d: dict) -> dict:
          "budget_min": num("budget_min"), "budget_max": num("budget_max"), "cities": [str(x).strip()[:40] for x in (d.get("cities") or []) if str(x).strip()][:6],
          "rooms_min": num("rooms_min"), "rooms_max": num("rooms_max"), "must": [str(x).strip()[:30] for x in (d.get("must") or []) if str(x).strip()][:8], "notes": str(d.get("notes") or "")[:400]}
     if not c["name"]: raise ValueError("client name is required")
-    if c["category"] not in ("real_estate", "vehicles", "electronics", "furniture"): raise ValueError("bad category")
+    if c["category"] not in _known_cats(): raise ValueError("bad category")
     return c
 
 
@@ -647,3 +647,11 @@ def clean_paste(text: str, max_parts: int = 60) -> dict:
         p = re.sub(r"[ \t]+", " ", p); p = re.sub(r"\n{3,}", "\n\n", p).strip()
         if len(p) >= 15: out.append(p[:5000])
     return {"parts": out[:max_parts], "found": len(out), "source": "whatsapp" if len(marks) >= 2 else "plain", "dropped": max(0, len(out) - max_parts)}
+
+def _known_cats() -> set:
+    """The four original categories plus everything in the central registry."""
+    base = {"real_estate", "vehicles", "electronics", "furniture"}
+    try:
+        from .categories import keys
+        return base | keys()
+    except Exception: return base

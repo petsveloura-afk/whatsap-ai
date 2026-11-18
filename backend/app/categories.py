@@ -1,0 +1,200 @@
+"""Central category registry (additive). The original categories keep their keys and behaviour; this module only ADDS:
+  * 42 new categories (group, icon, detection terms, classifieds sites, sub-categories, filter attributes)
+  * sub-categories + attributes for the original 7
+  * install(): hooks the registry into the existing modules without replacing anything. New categories are only detected when the
+    original detector found nothing, so every previously classified listing keeps its category.
+  * GET /api/categories, GET /api/categories/{key}, POST /api/categories/detect"""
+import logging, re
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
+log = logging.getLogger("sniper")
+router = APIRouter()
+Y2, KSP, IV, BUG, ZAP = "yad2.co.il", "ksp.co.il", "ivory.co.il", "bug.co.il", "zap.co.il"
+def _c(key, he, group, icon, strong, weak=(), sites=(Y2,), subs=(), attrs=(), parent=None, intent="למכירה"):
+    return {"key": key, "label": he, "group": group, "icon": icon, "strong": tuple(strong), "weak": tuple(weak), "sites": list(sites),
+            "subs": [{"key": k, "label": l, "terms": tuple(t)} for k, l, t in subs], "attrs": list(attrs), "parent": parent, "intent": intent}
+def A(key, label, kind="text", options=None): return {"key": key, "label": label, "type": kind, **({"options": options} if options else {})}
+COND = A("condition", "מצב", "select", ["חדש", "כמו חדש", "משומש במצב טוב", "דורש תיקון"])
+WARR = A("warranty", "באחריות", "bool")
+BRAND = A("brand", "יצרן / מותג")
+G_RE, G_VEH, G_EL, G_HOME, G_FASH, G_FUN, G_BIZ, G_SRV, G_OTH = "נדל״ן", "רכב ותחבורה", "אלקטרוניקה", "בית וגן", "אופנה וילדים", "פנאי וספורט", "עסקים ותעסוקה", "שירותים", "אחר"
+# ---- additions to the ORIGINAL categories: keys/labels/detection unchanged, only subs + attrs + sites are added ----
+BASE = {
+ "real_estate": dict(label="נדל״ן", group=G_RE, icon="🏠", subs=[("apartment_sale", "דירה למכירה", ("דירה למכירה",)), ("apartment_rent", "דירה להשכרה", ("דירה להשכרה", "שכירות")), ("penthouse", "פנטהאוז / דופלקס", ("פנטהאוז", "דופלקס")), ("garden_apt", "דירת גן", ("דירת גן",)), ("private_house", "בית פרטי / וילה", ("בית פרטי", "וילה", "קוטג")), ("studio", "סטודיו / יחידת דיור", ("סטודיו", "יחידת דיור")), ("new_project", "פרויקט חדש מקבלן", ("מקבלן", "פרויקט חדש")), ("sublet", "סאבלט", ("סאבלט", "sublet"))],
+   attrs=[A("rooms", "חדרים", "number"), A("area_sqm", "מ״ר", "number"), A("floor", "קומה", "number"), A("parking", "חניה", "bool"), A("elevator", "מעלית", "bool"), A("safe_room", "ממ״ד", "bool"), A("balcony", "מרפסת", "bool"), A("no_broker", "ללא תיווך", "bool")]),
+ "vehicles": dict(label="רכב", group=G_VEH, icon="🚗", subs=[("private_car", "רכב פרטי", ("רכב פרטי", "מכונית")), ("suv", "ג׳יפ / SUV", ("ג'יפ", "suv", "שטח")), ("luxury", "יוקרה", ("יוקרה", "מרצדס", "במוו")), ("ev_hybrid", "חשמלי / הייבריד", ("חשמלי", "הייבריד", "hybrid", "tesla")), ("minivan", "מיניוואן / 7 מקומות", ("מיניוואן", "7 מקומות")), ("lease_takeover", "העברת ליסינג", ("ליסינג", "העברת חוזה")), ("classic", "אספנות / קלאסי", ("אספנות", "קלאסי"))],
+   attrs=[BRAND, A("year", "שנה", "number"), A("km", "ק״מ", "number"), A("hand", "יד", "number"), A("gear", "תיבת הילוכים", "select", ["אוטומט", "ידני"]), A("fuel", "דלק", "select", ["בנזין", "דיזל", "היברידי", "חשמלי"]), A("test_months", "טסט (חודשים)", "number")]),
+ "electronics": dict(label="אלקטרוניקה", group=G_EL, icon="📱", subs=[("phones", "טלפונים", ("אייפון", "גלקסי", "טלפון")), ("laptops", "מחשבים ניידים", ("לפטופ", "מקבוק", "laptop")), ("tablets", "טאבלטים", ("אייפד", "טאבלט", "ipad")), ("tv", "טלוויזיות ומסכים", ("טלוויזיה", "מסך", "tv")), ("headphones", "אוזניות ורמקולים", ("אוזניות", "airpods", "רמקול")), ("wearables", "שעונים חכמים", ("שעון חכם", "apple watch")), ("accessories", "אביזרים", ("מטען", "כיסוי", "כבל"))],
+   attrs=[BRAND, A("model", "דגם"), A("storage_gb", "אחסון (GB)", "number"), COND, WARR]),
+ "furniture": dict(label="ריהוט", group=G_HOME, icon="🛋️", subs=[("sofas", "ספות וכורסאות", ("ספה", "כורסא")), ("beds", "מיטות ומזרנים", ("מיטה", "מזרן")), ("tables", "שולחנות וכיסאות", ("שולחן", "כיסא")), ("wardrobes", "ארונות ושידות", ("ארון", "שידה")), ("kitchen", "מטבחים", ("מטבח",)), ("lighting", "תאורה", ("מנורה", "תאורה")), ("office_furn", "ריהוט משרדי", ("שולחן משרדי", "כיסא משרדי"))],
+   attrs=[A("material", "חומר"), A("dimensions", "מידות"), COND]),
+ "business": dict(label="עסקים", group=G_BIZ, icon="💼", subs=[("franchise", "זכיינות", ("זכיינות", "franchise")), ("for_sale", "עסק למכירה", ("עסק למכירה",)), ("partner", "שותפים והשקעות", ("שותף", "משקיע")), ("supplier", "ספקים וסיטונאות", ("סיטונאי", "ספק")), ("equipment", "ציוד עסקי", ("ציוד עסקי",))], attrs=[A("annual_revenue", "מחזור שנתי", "number"), A("years_active", "שנות פעילות", "number")]),
+ "services": dict(label="שירותים", group=G_SRV, icon="🛠️", subs=[("repairs", "תיקונים", ("תיקון", "טכנאי")), ("cleaning", "ניקיון", ("ניקיון", "מנקה")), ("design", "עיצוב ובנייה", ("מעצב", "אדריכל")), ("legal", "משפט וחשבונאות", ("עורך דין", "רואה חשבון")), ("tech_srv", "שירותי טכנולוגיה", ("אתר", "אפליקציה", "תכנות"))], attrs=[A("hourly_rate", "מחיר לשעה", "number"), A("availability", "זמינות")]),
+ "other": dict(label="אחר", group=G_OTH, icon="📦", subs=[("misc", "שונות", ()), ("free", "למסירה / חינם", ("למסירה", "חינם")), ("lost_found", "אבדות ומציאות", ("אבדה", "מציאה"))], attrs=[COND, A("handover", "אופן מסירה", "select", ["איסוף עצמי", "משלוח", "שניהם"])]),
+}
+NEW = [
+ _c("commercial_re", "נדל״ן מסחרי", G_RE, "🏢", ("משרד להשכרה", "חנות להשכרה", "נדלן מסחרי", "נדל\"ן מסחרי", "שטח מסחרי", "קליניקה", "אולם תצוגה", "office space", "retail space"), ("מחסן להשכרה", "קומת משרדים", "בניין משרדים"), (Y2, "madlan.co.il", "komo.co.il"), [("office", "משרדים", ("משרד",)), ("shop", "חנויות", ("חנות",)), ("warehouse", "מחסנים ולוגיסטיקה", ("מחסן", "לוגיסטי")), ("clinic", "קליניקות", ("קליניקה", "מרפאה")), ("coworking", "חללי עבודה משותפים", ("coworking", "חלל עבודה"))], [A("area_sqm", "מ״ר", "number"), A("parking", "חניה", "bool"), A("zoning", "ייעוד")], "real_estate", "להשכרה"),
+ _c("land", "קרקעות ומגרשים", G_RE, "🌍", ("מגרש למכירה", "קרקע למכירה", "קרקע חקלאית", "מגרש לבנייה", "land for sale", "plot of land"), ("דונם", "תב\"ע", "זכויות בנייה", "חלקה"), (Y2, "madlan.co.il"), [("building_plot", "מגרש לבנייה", ("מגרש",)), ("agri", "קרקע חקלאית", ("חקלאית",)), ("investment", "קרקע להשקעה", ("השקעה",))], [A("dunam", "דונם", "number"), A("zoning", "ייעוד"), A("building_rights", "זכויות בנייה")], "real_estate"),
+ _c("vacation_rentals", "צימרים ונופש", G_RE, "🏡", ("צימר", "צימרים", "וילה לנופש", "יחידת נופש", "בקתה", "airbnb", "אירוח כפרי", "vacation rental"), ("לסוף שבוע", "ללילה", "ג'קוזי", "לינה"), ("tzimer.com", "airbnb.com", Y2), [("cabin", "בקתות וצימרים", ("בקתה", "צימר")), ("villa", "וילות נופש", ("וילה",)), ("apartment", "דירות נופש", ("דירת נופש",)), ("glamping", "גלמפינג", ("גלמפינג",))], [A("guests", "מספר אורחים", "number"), A("jacuzzi", "ג׳קוזי", "bool"), A("pool", "בריכה", "bool"), A("pets", "חיות מחמד", "bool")], "real_estate", "לנופש"),
+ _c("roommates", "שותפים לדירה", G_RE, "🛏️", ("מחפש שותף", "מחפשת שותפה", "שותפים לדירה", "חדר להשכרה", "roommate", "שותף לדירה"), ("חדר בדירה", "דירת שותפים"), (Y2, "homeless.co.il"), [("room", "חדר בדירה", ("חדר",)), ("students", "דירות סטודנטים", ("סטודנט",)), ("sublet", "סאבלט", ("סאבלט",))], [A("rooms_available", "חדרים פנויים", "number"), A("gender", "העדפה", "select", ["ללא העדפה", "בנות", "בנים"])], "real_estate", "להשכרה"),
+ _c("motorcycles", "אופנועים וקטנועים", G_VEH, "🏍️", ("אופנוע", "קטנוע", "אופנועים", "motorcycle", "scooter", "קלנועית", "טרקטורון", "וספה", "הארלי"), ("סמ\"ק", "סמק", "רישיון a"), (Y2, "icar.co.il"), [("road", "כביש", ("אופנוע כביש",)), ("scooter", "קטנועים", ("קטנוע", "וספה")), ("offroad", "שטח וטרקטורונים", ("שטח", "טרקטורון")), ("e_scooter", "קורקינט חשמלי", ("קורקינט",))], [BRAND, A("cc", "סמ״ק", "number"), A("year", "שנה", "number"), A("km", "ק״מ", "number")], "vehicles"),
+ _c("trucks", "משאיות ורכב מסחרי", G_VEH, "🚚", ("משאית", "טנדר", "וואן", "רכב מסחרי", "אוטובוס", "מיניבוס", "truck", "pickup", "מלגזה"), ("טון", "מנוף", "קירור"), (Y2, "icar.co.il"), [("pickup", "טנדרים", ("טנדר",)), ("van", "ואנים", ("וואן",)), ("heavy", "משאיות כבדות", ("משאית",)), ("bus", "אוטובוסים ומיניבוסים", ("אוטובוס", "מיניבוס")), ("forklift", "מלגזות ומנופים", ("מלגזה", "מנוף"))], [BRAND, A("year", "שנה", "number"), A("tons", "טונות", "number"), A("km", "ק״מ", "number")], "vehicles"),
+ _c("boats", "כלי שיט", G_VEH, "⛵", ("סירה", "יאכטה", "אופנוע ים", "סירת מנוע", "זודיאק", "קיאק", "מפרשית", "boat", "yacht", "jet ski"), ("מנוע חיצוני", "מעגן", "מרינה"), (Y2,), [("motorboat", "סירות מנוע", ("סירת מנוע",)), ("sail", "מפרשיות", ("מפרשית",)), ("jetski", "אופנועי ים", ("אופנוע ים",)), ("kayak", "קיאקים וסאפ", ("קיאק", "סאפ"))], [A("length_m", "אורך (מטר)", "number"), A("engine_hp", "כוחות סוס", "number"), A("year", "שנה", "number")], "vehicles"),
+ _c("car_parts", "חלפים לרכב", G_VEH, "⚙️", ("חלפים", "חלק חילוף", "צמיגים", "ג'אנטים", "גאנטים", "מצבר", "פנס לרכב", "car parts", "tires", "wheels", "חלקי חילוף"), ("אביזרים לרכב", "מערכת שמע לרכב", "גג מטען"), (Y2, "pitstop.co.il"), [("tires", "צמיגים וג׳אנטים", ("צמיג", "ג'אנט")), ("engine", "מנוע ותיבה", ("מנוע", "גיר")), ("body", "פחחות ופנסים", ("פנס", "כנף", "מכסה מנוע")), ("audio", "מערכות שמע", ("מערכת שמע",)), ("accessories", "אביזרים", ("אביזר",))], [A("compat_make", "תואם ליצרן"), A("compat_year", "תואם לשנה", "number"), COND], "vehicles"),
+ _c("bicycles", "אופניים ואופניים חשמליים", G_VEH, "🚲", ("אופניים", "אופני הרים", "אופני כביש", "אופניים חשמליים", "bicycle", "e-bike", "ebike", "אופני שטח", "קורקינט"), ("הילוכים", "שלדה", "בולמים"), (Y2,), [("mtb", "אופני הרים", ("אופני הרים",)), ("road", "אופני כביש", ("אופני כביש",)), ("ebike", "אופניים חשמליים", ("חשמליים",)), ("kids", "אופני ילדים", ("אופני ילדים",)), ("city", "אופני עיר", ("אופני עיר",))], [BRAND, A("frame_size", "גודל שלדה"), A("gears", "הילוכים", "number"), COND]),
+ _c("smartphones", "סלולר וטלפונים חכמים", G_EL, "📲", ("סמארטפון", "טלפון סלולרי", "פלאפון", "xiaomi", "oneplus", "פיקסל", "סלולר", "smartphone", "pixel"), ("מכשיר סלולרי", "נעול", "שחרור"), (Y2, KSP, IV, ZAP), [("iphone", "אייפון", ("אייפון", "iphone")), ("galaxy", "גלקסי", ("גלקסי", "galaxy")), ("xiaomi", "שיאומי ואחרים", ("שיאומי", "xiaomi")), ("refurb", "מחודש", ("מחודש", "refurbished")), ("accessories", "אביזרי סלולר", ("כיסוי", "מטען"))], [BRAND, A("model", "דגם"), A("storage_gb", "אחסון (GB)", "number"), A("battery_health", "בריאות סוללה (%)", "number"), WARR], "electronics"),
+ _c("computers", "מחשבים וציוד היקפי", G_EL, "💻", ("מחשב נייח", "מחשב גיימינג", "כרטיס מסך", "מעבד", "מסך מחשב", "מדפסת", "dell", "lenovo", "desktop pc", "gpu", "rtx", "ssd", "מקלדת מכנית"), ("זיכרון ram", "ram", "i7", "i9", "ryzen", "לוח אם"), (Y2, KSP, IV, BUG, ZAP), [("desktop", "מחשבים נייחים", ("מחשב נייח",)), ("gpu", "כרטיסי מסך", ("כרטיס מסך", "rtx")), ("monitors", "מסכים", ("מסך מחשב",)), ("printers", "מדפסות וסורקים", ("מדפסת",)), ("network", "ציוד רשת", ("נתב", "ראוטר", "router"))], [BRAND, A("cpu", "מעבד"), A("ram_gb", "זיכרון (GB)", "number"), A("storage_gb", "אחסון (GB)", "number"), WARR], "electronics"),
+ _c("gaming", "גיימינג וקונסולות", G_EL, "🎮", ("קונסולה", "פלייסטיישן", "ps5", "ps4", "xbox", "nintendo switch", "נינטנדו", "משחקי מחשב", "steam deck", "playstation"), ("בקר משחק", "בקר", "משחק לקונסולה", "gaming"), (Y2, KSP, IV), [("ps", "פלייסטיישן", ("פלייסטיישן", "ps5", "ps4")), ("xbox", "אקסבוקס", ("xbox", "אקסבוקס")), ("switch", "נינטנדו", ("נינטנדו", "switch")), ("games", "משחקים", ("משחק",)), ("vr", "מציאות מדומה", ("vr", "oculus", "quest"))], [A("platform", "פלטפורמה"), A("storage_gb", "אחסון (GB)", "number"), COND, WARR], "electronics"),
+ _c("cameras", "צילום ודרונים", G_EL, "📷", ("מצלמה", "עדשה", "דרון", "gopro", "canon", "nikon", "מצלמת וידאו", "dslr", "mirrorless", "drone"), ("טריפוד", "פלאש", "צילום"), (Y2, KSP, "photo-shop.co.il"), [("dslr", "מצלמות רפלקס ומירורלס", ("dslr", "מירורלס")), ("lenses", "עדשות", ("עדשה",)), ("action", "מצלמות אקשן", ("gopro", "אקשן")), ("drones", "דרונים", ("דרון", "drone")), ("studio", "ציוד סטודיו", ("פלאש", "תאורת סטודיו"))], [BRAND, A("shutter_count", "מספר חשיפות", "number"), A("lens_mount", "מאונט"), WARR], "electronics"),
+ _c("audio", "אודיו והיי-פיי", G_EL, "🔊", ("רמקולים", "מגבר", "סאונד בר", "מערכת קולנוע ביתי", "גרמופון", "פטיפון", "hi-fi", "hifi", "soundbar", "מקרן", "dj"), ("אודיופיל", "סאב וופר", "קסטות", "רדיו"), (Y2, "mp3.co.il"), [("speakers", "רמקולים", ("רמקול",)), ("amps", "מגברים ונגנים", ("מגבר",)), ("home_cinema", "קולנוע ביתי", ("קולנוע ביתי", "מקרן", "סאונד בר")), ("turntable", "פטיפונים", ("פטיפון", "גרמופון")), ("dj", "ציוד די-ג׳יי", ("dj", "דיג'יי"))], [BRAND, A("power_w", "הספק (W)", "number"), COND], "electronics"),
+ _c("smart_home", "בית חכם ואבטחה", G_EL, "🏠", ("בית חכם", "מצלמות אבטחה", "מצלמת אבטחה", "אינטרקום", "מנעול חכם", "smart home", "אזעקה", "חיישן", "אלקסה", "google home"), ("wifi", "zigbee", "ring", "שואב רובוטי", "רובוט שואב"), (Y2, KSP, IV), [("cameras", "מצלמות אבטחה", ("מצלמת אבטחה", "מצלמות אבטחה")), ("locks", "מנעולים חכמים", ("מנעול חכם",)), ("lighting", "תאורה חכמה", ("תאורה חכמה",)), ("robot", "שואבים רובוטיים", ("שואב רובוטי", "רובוט שואב")), ("alarm", "אזעקות", ("אזעקה",))], [BRAND, A("protocol", "פרוטוקול"), WARR], "electronics"),
+ _c("appliances", "מוצרי חשמל לבית", G_HOME, "🧊", ("מקרר", "מכונת כביסה", "מייבש כביסה", "מדיח כלים", "תנור אפייה", "מיקרוגל", "מזגן", "שואב אבק", "סטופר", "refrigerator", "dishwasher", "washing machine"), ("כיריים", "קולט אדים", "מקפיא", "בוילר", "דוד שמש", "מייבש"), (Y2, ZAP, KSP, BUG), [("fridge", "מקררים ומקפיאים", ("מקרר", "מקפיא")), ("laundry", "כביסה וייבוש", ("מכונת כביסה", "מייבש")), ("kitchen", "מטבח", ("תנור", "כיריים", "מדיח", "מיקרוגל")), ("ac", "מיזוג אוויר", ("מזגן",)), ("small", "מוצרי חשמל קטנים", ("מקרצף", "בלנדר", "קפה", "פרוצסור"))], [BRAND, A("energy_rating", "דירוג אנרגטי"), A("age_years", "גיל (שנים)", "number"), COND, WARR], "furniture"),
+ _c("garden", "גינה, חוץ ופרגולות", G_HOME, "🌳", ("פרגולה", "ערסל", "מדשאה", "גינה", "ג'קוזי", "בריכה", "מנגל", "ריהוט גן", "גזיבו", "דשא סינטטי", "garden furniture", "pool"), ("עציצים", "השקיה", "צל", "סוכה"), (Y2,), [("pergola", "פרגולות וצל", ("פרגולה", "גזיבו")), ("garden_furn", "ריהוט גן", ("ריהוט גן",)), ("pool", "בריכות וג׳קוזי", ("בריכה", "ג'קוזי")), ("bbq", "מנגלים", ("מנגל",)), ("plants", "צמחים ועציצים", ("עציץ", "צמח"))], [A("material", "חומר"), A("dimensions", "מידות"), COND], "furniture"),
+ _c("tools", "כלי עבודה ומכשור", G_HOME, "🔧", ("מקדחה", "דיסק", "משחזת", "מסור", "כלי עבודה", "פטישון", "מדחס", "ארגז כלים", "bosch", "makita", "dewalt", "hilti", "מברגה"), ("ידני", "חשמלי", "סוללה", "ליתיום"), (Y2,), [("power", "כלי עבודה חשמליים", ("מקדחה", "משחזת", "מברגה")), ("hand", "כלי עבודה ידניים", ("ידני",)), ("compressor", "מדחסים ומחוללים", ("מדחס", "גנרטור")), ("welding", "ריתוך", ("ריתוך", "רתכת")), ("measure", "מכשור ומדידה", ("לייזר", "פלס"))], [BRAND, A("power_source", "מקור כוח", "select", ["חשמלי", "סוללה", "פנאומטי", "ידני"]), COND], "furniture"),
+ _c("building_materials", "חומרי בניין ושיפוצים", G_HOME, "🧱", ("חומרי בניין", "ריצוף", "אריחים", "פרקט", "שיש", "דלתות פנים", "חלונות אלומיניום", "צבע לבית", "טיח", "tiles", "flooring"), ("קרמיקה", "גבס", "אינסטלציה", "ברזים", "כלים סניטריים"), (Y2,), [("tiles", "ריצוף וחיפוי", ("אריחים", "ריצוף", "פרקט")), ("doors", "דלתות וחלונות", ("דלת", "חלון")), ("plumbing", "אינסטלציה וסניטריה", ("ברז", "אינסטלציה")), ("paint", "צבעים וטיח", ("צבע", "טיח")), ("stone", "אבן ושיש", ("שיש", "אבן"))], [A("quantity", "כמות", "number"), A("unit", "יחידה", "select", ["מ״ר", "יחידות", "מטר", "שק"]), COND], "furniture"),
+ _c("fashion", "אופנה והלבשה", G_FASH, "👗", ("שמלה", "מעיל", "נעליים", "תיק", "ג'ינס", "חולצה", "חליפה", "שמלת כלה", "מעיל עור", "sneakers", "nike", "adidas", "dress", "handbag"), ("מידה", "גודל", "נעלי ספורט", "זארה", "קסטרו"), (Y2, "vinted.com"), [("women", "אופנת נשים", ("שמלה", "תיק נשים")), ("men", "אופנת גברים", ("חליפה", "חולצה")), ("shoes", "נעליים", ("נעליים", "סניקרס")), ("bridal", "שמלות כלה וערב", ("שמלת כלה", "שמלת ערב")), ("bags", "תיקים ואביזרים", ("תיק", "ארנק"))], [BRAND, A("size", "מידה"), A("gender", "מגדר", "select", ["נשים", "גברים", "יוניסקס"]), COND]),
+ _c("jewelry", "תכשיטים ושעונים", G_FASH, "💍", ("טבעת יהלום", "שעון יד", "שרשרת זהב", "תכשיט", "יהלום", "rolex", "רולקס", "אומגה", "טבעת נישואין", "watch", "diamond", "gold ring"), ("זהב 14", "זהב 18", "כסף 925", "עגילים", "צמיד"), (Y2,), [("rings", "טבעות", ("טבעת",)), ("watches", "שעונים", ("שעון יד", "rolex", "רולקס")), ("necklaces", "שרשראות ותליונים", ("שרשרת", "תליון")), ("diamonds", "יהלומים ואבנים", ("יהלום",)), ("bullion", "זהב וכסף להשקעה", ("מטיל", "מטבע זהב"))], [A("material", "חומר", "select", ["זהב 14K", "זהב 18K", "כסף", "פלטינה", "אחר"]), A("weight_g", "משקל (גרם)", "number"), A("certificate", "תעודה", "bool"), COND]),
+ _c("baby_kids", "תינוקות וילדים", G_FASH, "👶", ("עגלת תינוק", "טיולון", "כיסא בטיחות", "עריסה", "מיטת תינוק", "אחיזת תינוק", "מנשא", "stroller", "car seat", "baby crib", "מיטת מעבר", "במבוק"), ("בגדי תינוקות", "חיתולים", "מוצץ", "יולדת"), (Y2,), [("strollers", "עגלות וטיולונים", ("עגלה", "טיולון")), ("car_seats", "כסאות בטיחות", ("כיסא בטיחות",)), ("furniture", "ריהוט לתינוק", ("עריסה", "מיטת תינוק")), ("clothes", "בגדי ילדים", ("בגדי ילדים", "בגדי תינוקות")), ("feeding", "האכלה והנקה", ("משאבת חלב", "בקבוק"))], [A("age_range", "טווח גילאים"), BRAND, COND, A("safety_cert", "תקן בטיחות", "bool")]),
+ _c("toys", "צעצועים ומשחקים", G_FASH, "🧸", ("צעצועים", "לגו", "lego", "משחק קופסא", "בובה", "פאזל", "משחקי שולחן", "קלפי פוקימון", "ברביות", "board game", "puzzle", "action figure"), ("אספנות", "פיגורה", "דגם"), (Y2,), [("lego", "לגו ובנייה", ("לגו", "lego")), ("board", "משחקי קופסה", ("משחק קופסא", "משחקי שולחן")), ("dolls", "בובות", ("בובה", "ברבי")), ("cards", "קלפי אספנות", ("קלפי", "פוקימון")), ("outdoor", "משחקי חוץ", ("טרמפולינה", "נדנדה"))], [A("age_range", "טווח גילאים"), A("pieces", "מספר חלקים", "number"), COND]),
+ _c("sports", "ציוד ספורט", G_FUN, "⚽", ("כדורגל", "כדורסל", "טניס", "מחבט", "גלשן", "סקי", "סנובורד", "גולף", "שחייה", "כדורעף", "ציוד ספורט", "skateboard", "surfboard", "tennis racket"), ("סקייטבורד", "רולרבלייד", "אומנויות לחימה", "כפפות אגרוף"), (Y2,), [("ball", "ספורט כדור", ("כדורגל", "כדורסל", "כדורעף")), ("racket", "טניס וחבטות", ("טניס", "מחבט", "פאדל")), ("water", "ספורט מים", ("גלשן", "גלישה", "צלילה", "שנורקל")), ("winter", "סקי וסנובורד", ("סקי", "סנובורד")), ("martial", "אומנויות לחימה", ("אגרוף", "קראטה", "ג'ודו"))], [BRAND, A("size", "מידה"), COND]),
+ _c("fitness", "ציוד כושר", G_FUN, "🏋️", ("הליכון", "משקולות", "אופני כושר", "מכשיר כושר", "ספסל כושר", "טבעות כושר", "treadmill", "dumbbells", "ריטרו", "מכשיר חתירה"), ("מוט הרמה", "קטלבל", "יוגה", "פילאטיס", "מתח"), (Y2,), [("cardio", "קרדיו", ("הליכון", "אופני כושר", "אליפטיקל")), ("weights", "משקולות וכוח", ("משקולות", "קטלבל", "מוט")), ("home_gym", "ג׳ים ביתי", ("מכשיר כושר", "תחנת כושר")), ("yoga", "יוגה ופילאטיס", ("יוגה", "פילאטיס")), ("recovery", "התאוששות", ("רולר", "אקדח עיסוי"))], [BRAND, A("max_load_kg", "עומס מרבי (ק״ג)", "number"), COND]),
+ _c("camping", "קמפינג וטיולים", G_FUN, "⛺", ("אוהל", "שק שינה", "קמפינג", "תרמיל טיולים", "פנס ראש", "מזרון שטח", "גזיה", "camping", "tent", "backpack", "קרוואן"), ("טרקים", "הליכה", "מקרר קמפינג"), (Y2,), [("tents", "אוהלים", ("אוהל",)), ("sleeping", "שקי שינה וציוד לינה", ("שק שינה", "מזרון שטח")), ("backpacks", "תרמילים", ("תרמיל",)), ("cooking", "בישול בשטח", ("גזיה", "פינג'אן")), ("caravan", "קרוואנים ושטח", ("קרוואן", "קמפר"))], [BRAND, A("capacity", "מספר אנשים", "number"), COND]),
+ _c("music_instruments", "כלי נגינה", G_FUN, "🎸", ("גיטרה", "פסנתר", "תופים", "קלידים", "כינור", "חליל", "סקסופון", "אקורדיון", "ukulele", "guitar", "piano", "drum kit", "בס"), ("מגבר גיטרה", "מיקרופון", "סינתיסייזר", "פדאל"), (Y2, "musicland.co.il"), [("guitar", "גיטרות ובס", ("גיטרה", "בס")), ("keys", "פסנתרים וקלידים", ("פסנתר", "קלידים", "סינתיסייזר")), ("drums", "תופים ושירה", ("תופים", "מקצבים")), ("strings", "כלי קשת", ("כינור", "צ'לו")), ("wind", "כלי נשיפה", ("חליל", "סקסופון", "חצוצרה"))], [BRAND, A("model", "דגם"), A("year", "שנת ייצור", "number"), COND]),
+ _c("books", "ספרים ולימוד", G_FUN, "📚", ("ספר", "ספרים", "ספרי לימוד", "אנציקלופדיה", "קומיקס", "textbook", "novel", "ספרי קודש", "סט ספרים"), ("מהדורה", "כריכה", "פסיכומטרי", "ספרי ילדים"), (Y2, "booknet.co.il"), [("textbooks", "ספרי לימוד", ("ספרי לימוד",)), ("fiction", "ספרות", ("רומן", "ספרות")), ("kids", "ספרי ילדים", ("ספרי ילדים",)), ("holy", "ספרי קודש", ("ספרי קודש", "גמרא", "ספר תורה")), ("comics", "קומיקס ומנגה", ("קומיקס", "מנגה"))], [A("author", "מחבר"), A("language", "שפה"), A("edition", "מהדורה"), COND]),
+ _c("collectibles", "אספנות ואמנות", G_FUN, "🖼️", ("אספנות", "מטבעות", "בולים", "ציור", "פסל", "אנטיקה", "עתיקות", "vintage", "antique", "painting", "תמונות לאספנות", "פריט אספנות"), ("חתום", "מהדורה מוגבלת", "ויניל", "תקליט", "מזכרות"), (Y2, "ebay.com"), [("coins", "מטבעות ושטרות", ("מטבע", "שטר")), ("stamps", "בולים", ("בול",)), ("art", "ציורים ופסלים", ("ציור", "פסל")), ("antiques", "אנטיקות", ("אנטיקה", "עתיקות")), ("vinyl", "תקליטים", ("תקליט", "ויניל"))], [A("year", "שנה", "number"), A("authenticity", "אישור אותנטיות", "bool"), COND]),
+ _c("pets", "חיות מחמד", G_FASH, "🐶", ("כלב", "חתול", "גור", "גורים", "תוכי", "אקווריום", "אימוץ", "puppy", "kitten", "dog", "cat", "אוגר", "ארנב", "ציוד לכלבים"), ("חיסונים", "שבב", "פדיגרי", "גזע", "כלוב"), (Y2, "petshop.co.il"), [("dogs", "כלבים", ("כלב", "גור")), ("cats", "חתולים", ("חתול",)), ("birds", "ציפורים", ("תוכי", "ציפור")), ("fish", "דגים ואקווריום", ("אקווריום", "דג")), ("supplies", "ציוד ומזון לחיות", ("ציוד לכלבים", "כלוב", "מזון"))], [A("breed", "גזע"), A("age_months", "גיל (חודשים)", "number"), A("vaccinated", "מחוסן", "bool"), A("pedigree", "פדיגרי", "bool")]),
+ _c("tickets", "כרטיסים והופעות", G_FUN, "🎟️", ("כרטיסים", "כרטיס להופעה", "כרטיסים למשחק", "הופעה", "פסטיבל", "ticket", "concert", "כרטיס לטיסה", "מנוי"), ("מושבים", "יציע", "VIP", "אירוע", "הצגה"), ("eventim.co.il", "leaan.co.il", Y2), [("concerts", "הופעות", ("הופעה", "קונצרט")), ("sports", "משחקי ספורט", ("משחק", "כדורגל")), ("theater", "תיאטרון והצגות", ("הצגה", "תיאטרון")), ("festivals", "פסטיבלים", ("פסטיבל",)), ("kids", "אירועי ילדים", ("ילדים",))], [A("event_date", "תאריך האירוע"), A("seats", "מספר כרטיסים", "number"), A("section", "אזור ישיבה"), A("face_value", "מחיר מקורי", "number")], None, "למכירה"),
+ _c("jobs", "דרושים ותעסוקה", G_BIZ, "👔", ("דרוש", "דרושה", "משרה", "משרות", "מחפש עבודה", "קורות חיים", "job opening", "hiring", "משרה מלאה", "משרה חלקית"), ("שכר", "ראיון", "הצטרפות לצוות", "freelance", "פרילנס"), ("alljobs.co.il", "jobmaster.co.il", "drushim.co.il", Y2), [("fulltime", "משרה מלאה", ("משרה מלאה",)), ("parttime", "משרה חלקית", ("משרה חלקית",)), ("freelance", "פרילנס", ("פרילנס", "freelance")), ("hightech", "הייטק", ("מפתח", "תוכנה", "devops")), ("students", "סטודנטים", ("סטודנט",))], [A("salary", "שכר", "number"), A("experience_years", "שנות ניסיון", "number"), A("remote", "עבודה מרחוק", "bool")], None, "דרושים"),
+ _c("courses", "קורסים ושיעורים פרטיים", G_SRV, "🎓", ("שיעורים פרטיים", "קורס", "מורה פרטי", "הכנה לבגרות", "פסיכומטרי", "קורס אונליין", "tutor", "lessons", "חוג", "סדנה"), ("לימודים", "הכשרה", "מרצה", "הוראה"), (Y2, "tutor.co.il"), [("tutoring", "שיעורים פרטיים", ("שיעורים פרטיים", "מורה פרטי")), ("languages", "שפות", ("אנגלית", "ספרדית", "ערבית")), ("professional", "קורסים מקצועיים", ("קורס",)), ("music", "שיעורי נגינה", ("שיעורי נגינה", "שיעורי גיטרה")), ("kids_clubs", "חוגים לילדים", ("חוג",))], [A("level", "רמה"), A("format", "פורמט", "select", ["פרונטלי", "אונליין", "משולב"]), A("hourly_rate", "מחיר לשעה", "number")], None, "שירות"),
+ _c("event_services", "אירועים והפקות", G_SRV, "🎉", ("אולם אירועים", "צלם לאירוע", "די ג'יי", "קייטרינג", "הפקת אירועים", "חתונה", "בר מצווה", "wedding", "catering", "photographer", "להקה לאירועים"), ("נטיעת אירוע", "הגברה", "עיצוב אירועים", "מפעיל"), (Y2,), [("venues", "אולמות וגנים", ("אולם", "גן אירועים")), ("catering", "קייטרינג", ("קייטרינג",)), ("photo", "צילום ווידאו", ("צלם", "צילום")), ("music", "להקות ו-DJ", ("להקה", "די ג'יי", "dj")), ("rentals", "השכרת ציוד לאירועים", ("השכרת",))], [A("guests", "מספר אורחים", "number"), A("event_date", "תאריך"), A("price_per_plate", "מחיר למנה", "number")], "services", "שירות"),
+ _c("home_services", "שירותי בית ושיפוצים", G_SRV, "🧰", ("שיפוצים", "אינסטלטור", "חשמלאי", "צבעי", "הדברה", "מנעולן", "טכנאי מזגנים", "נגר", "שיפוץ דירה", "plumber", "electrician", "handyman", "ניקיון דירות"), ("קבלן שיפוצים", "אלומיניום", "איטום", "גבס", "תיקונים בבית"), (Y2, "midrag.co.il"), [("plumber", "אינסטלציה", ("אינסטלטור",)), ("electric", "חשמל", ("חשמלאי",)), ("painting", "צבעות", ("צבעי", "צבע")), ("renovation", "שיפוץ כללי", ("שיפוץ", "קבלן")), ("pest", "הדברה וניקיון", ("הדברה", "ניקיון"))], [A("hourly_rate", "מחיר לשעה", "number"), A("license", "רישיון מקצועי", "bool"), A("availability", "זמינות")], "services", "שירות"),
+ _c("moving", "הובלות ואחסון", G_SRV, "📦", ("הובלות", "הובלה", "מוביל", "מובילים", "אחסנה", "מחסן להשכרה", "מנוף הרמה", "moving company", "הובלת דירה", "פינוי"), ("מטען", "אריזה", "מעבר דירה", "פינוי גזם"), (Y2,), [("apartment", "הובלת דירה", ("הובלת דירה", "מעבר דירה")), ("pianos", "הובלת פסנתרים וכבדים", ("פסנתר", "כספת")), ("storage", "אחסנה", ("אחסנה", "מחסן")), ("junk", "פינוי פסולת", ("פינוי", "גזם")), ("international", "הובלות בינלאומיות", ("בינלאומי", "מכולה"))], [A("volume_m3", "נפח (מ״ק)", "number"), A("floors", "קומות", "number"), A("crane", "מנוף", "bool")], "services", "שירות"),
+ _c("health_beauty", "בריאות ויופי", G_SRV, "💆", ("קוסמטיקאית", "מניקור", "עיסוי", "פיזיותרפיה", "קוסמטיקה", "ספא", "תספורת", "ציפורניים", "massage", "beauty", "מרכז יופי", "קליניקה לטיפולים"), ("הסרת שיער", "בוטוקס", "דיקור", "ריפוי", "תזונאית"), (Y2,), [("cosmetics", "קוסמטיקה וטיפוח", ("קוסמטיקאית", "קוסמטיקה")), ("massage", "עיסוי וספא", ("עיסוי", "ספא")), ("physio", "פיזיותרפיה וריפוי", ("פיזיותרפיה", "דיקור")), ("hair", "שיער וציפורניים", ("תספורת", "ציפורניים", "מניקור")), ("nutrition", "תזונה וכושר אישי", ("תזונאית", "מאמן אישי"))], [A("home_visit", "מגיע הביתה", "bool"), A("price_per_session", "מחיר לטיפול", "number")], "services", "שירות"),
+ _c("medical_equipment", "ציוד רפואי ושיקום", G_SRV, "🩺", ("כיסא גלגלים", "הליכון רפואי", "מיטה סיעודית", "מכשיר שמיעה", "חמצן", "ציוד רפואי", "קלנועית", "wheelchair", "מזרן נגד פצעי לחץ", "מכשיר סוכר", "מכשיר לחץ דם"), ("סיעודי", "שיקום", "מדרגון", "ליפט"), (Y2,), [("mobility", "ניידות", ("כיסא גלגלים", "קלנועית", "הליכון רפואי")), ("beds", "מיטות ומזרנים סיעודיים", ("מיטה סיעודית",)), ("hearing", "שמיעה וראייה", ("מכשיר שמיעה",)), ("home_care", "ציוד טיפול בית", ("חמצן", "לחץ דם")), ("dental", "ציוד רפואי מקצועי", ("שיניים", "אולטרסאונד"))], [BRAND, A("age_years", "גיל (שנים)", "number"), A("certified", "תעודת בדיקה", "bool"), COND]),
+ _c("industrial", "ציוד תעשייתי וחקלאי", G_BIZ, "🏭", ("ציוד תעשייתי", "מכונת cnc", "מכבש", "מחרטה", "מכונות לתעשייה", "טרקטור", "קומבייין", "מערכת השקיה", "גנרטור", "industrial equipment", "cnc", "מכונת ייצור"), ("חקלאי", "מפעל", "קו ייצור", "מדחס תעשייתי"), (Y2,), [("cnc", "מכונות CNC ועיבוד", ("cnc", "מחרטה", "כרסומת")), ("packing", "אריזה וייצור", ("מכונת אריזה", "קו ייצור")), ("agri", "ציוד חקלאי", ("טרקטור", "השקיה")), ("power", "גנרטורים ואנרגיה", ("גנרטור", "פאנלים")), ("lift", "הרמה ומשטחים", ("מלגזה", "משטח"))], [BRAND, A("year", "שנת ייצור", "number"), A("hours", "שעות עבודה", "number"), A("power_kw", "הספק (kW)", "number")], "business"),
+ _c("business_for_sale", "עסקים למכירה וזכיינות", G_BIZ, "🏪", ("עסק למכירה", "מכירת עסק", "זכיינות", "זכיין", "קפה למכירה", "מסעדה למכירה", "מכולת למכירה", "business for sale", "franchise", "דמי מפתח"), ("מחזור חודשי", "הכנסה חודשית", "ותק העסק", "ציוד ומלאי"), (Y2, "bizfinder.co.il"), [("restaurant", "מסעדות וקפה", ("מסעדה", "קפה", "בית קפה")), ("retail", "חנויות וקמעונאות", ("חנות", "מכולת", "קיוסק")), ("service", "עסקי שירות", ("סלון", "מכון", "מספרה")), ("online", "עסקים אונליין", ("אתר", "חנות אונליין", "דרופשיפינג")), ("franchise", "זכיינות", ("זכיינות", "זכיין"))], [A("monthly_revenue", "מחזור חודשי", "number"), A("years_active", "ותק (שנים)", "number"), A("lease_years", "שנות שכירות שנותרו", "number"), A("includes_inventory", "כולל מלאי", "bool")], "business"),
+ _c("travel", "טיסים וחבילות נופש", G_FUN, "✈️", ("טיסה", "טיסות", "חבילת נופש", "מלון", "חופשה", "נופש", "flight", "hotel", "חבילת טיול", "קרוז", "השכרת רכב"), ("העברת הזמנה", "כרטיס טיסה", "דיל", "ארוחת בוקר", "לילות"), ("issta.co.il", "airline.co.il", Y2), [("flights", "טיסות", ("טיסה", "כרטיס טיסה")), ("hotels", "מלונות", ("מלון",)), ("packages", "חבילות נופש", ("חבילת נופש", "חבילה")), ("cruise", "קרוזים", ("קרוז",)), ("transfer", "העברת הזמנות", ("העברת הזמנה",))], [A("destination", "יעד"), A("nights", "לילות", "number"), A("travelers", "מספר נוסעים", "number"), A("travel_date", "תאריך יציאה")], None, "דיל"),
+ _c("food_equipment", "ציוד למסעדות ובתי קפה", G_BIZ, "🍽️", ("מכונת קפה", "תנור פיצה", "ציוד מטבח מקצועי", "קונדיטוריה", "בר קפה", "מקרר תצוגה", "espresso machine", "pizza oven", "ציוד מסעדה", "גריל מקצועי"), ("מדף נירוסטה", "מטחנת קפה", "מכונת גלידה", "קירור מסחרי", "נירוסטה"), (Y2,), [("coffee", "מכונות קפה", ("מכונת קפה", "מטחנת קפה", "espresso")), ("ovens", "תנורים וגריל", ("תנור פיצה", "גריל")), ("fridge", "קירור מסחרי", ("מקרר תצוגה", "קירור")), ("furniture", "ריהוט למסעדות", ("שולחנות מסעדה", "כיסאות בר")), ("bakery", "קונדיטוריה ומאפייה", ("קונדיטוריה", "מאפייה"))], [BRAND, A("age_years", "גיל (שנים)", "number"), A("voltage", "מתח", "select", ["חד פאזי", "תלת פאזי", "גז"]), COND], "business"),
+]
+CATS: dict[str, dict] = {}; ORDER: list[str] = []
+def _build():
+    CATS.clear(); ORDER.clear()
+    for k, b in BASE.items():
+        CATS[k] = {"key": k, "label": b["label"], "group": b["group"], "icon": b["icon"], "strong": (), "weak": (), "sites": [], "parent": None, "intent": "למכירה", "builtin": True,
+                   "subs": [{"key": a, "label": l, "terms": tuple(t)} for a, l, t in b["subs"]], "attrs": b["attrs"]}; ORDER.append(k)
+    for c in NEW: CATS[c["key"]] = {**c, "builtin": False}; ORDER.append(c["key"])
+_build()
+NEW_KEYS = [c["key"] for c in NEW]
+def keys() -> set[str]: return set(CATS)
+def label(key: str | None) -> str: return CATS[key]["label"] if key in CATS else (key or "")
+def groups() -> list[dict]:
+    out: dict[str, list] = {}
+    for k in ORDER: out.setdefault(CATS[k]["group"], []).append(k)
+    return [{"group": g, "keys": v} for g, v in out.items()]
+def compatible(a: str | None, b: str | None) -> bool:
+    """Same category, or one is a specialisation of the other (smartphones ~ electronics) or both share a parent."""
+    if not a or not b: return False
+    if a == b: return True
+    pa, pb = CATS.get(a, {}).get("parent"), CATS.get(b, {}).get("parent")
+    return pa == b or pb == a or (pa is not None and pa == pb)
+# ---- detection (only for NEW categories; the original detector always has first say) ----
+_PRE = "והבלמכש"
+_RX: dict[str, re.Pattern] = {}
+def _rx(w: str) -> re.Pattern:
+    w = w.strip().lower()
+    if w not in _RX:
+        heb = bool(re.search(r"[א-ת]", w[:1])); head = r"(?<![א-ת])[" + _PRE + r"]{0,2}" if heb else r"(?<![a-z0-9])"
+        tail = r"(?![א-ת])" if re.search(r"[א-ת]", w[-1:]) else (r"(?![a-z])" if re.search(r"[a-z]", w[-1:]) else "")
+        _RX[w] = re.compile(head + re.escape(w) + tail)
+    return _RX[w]
+def detect_new(text: str) -> tuple[str | None, int, str | None]:
+    """-> (category, score, sub-category). Strong term = 2 points, weak = 1; needs >= 2 points and a clear lead over the runner-up."""
+    t = re.sub(r"\s+", " ", (text or "").lower().replace("״", '"').replace("׳", "'").replace("’", "'")); scored = []
+    for k in NEW_KEYS:
+        c = CATS[k]; s = sum(2 for w in c["strong"] if _rx(w).search(t)) + sum(1 for w in c["weak"] if _rx(w).search(t))
+        if s: scored.append((s, k))
+    scored.sort(reverse=True)
+    if not scored or scored[0][0] < 2: return None, 0, None
+    if len(scored) > 1 and scored[0][0] == scored[1][0] and scored[0][0] < 4: return None, scored[0][0], None   # ambiguous tie: say nothing rather than guess
+    s, k = scored[0]; return k, s, detect_sub(k, t)
+def detect_sub(cat: str, text: str) -> str | None:
+    t = (text or "").lower()
+    for sub in CATS.get(cat, {}).get("subs", []):
+        if any(_rx(w).search(t) for w in sub["terms"]): return sub["key"]
+    return None
+def sites_for(cat: str | None) -> list[str]: return list(CATS[cat]["sites"]) if cat in CATS and CATS[cat]["sites"] else []
+# ---- installation into the existing modules (idempotent; each hook isolated) ----
+_done = False
+def install() -> dict:
+    global _done
+    out: dict[str, str] = {}
+    if _done: return out
+    _done = True
+    def hook(name, fn):
+        try: fn(); out[name] = "ok"
+        except Exception as e: out[name] = "error:" + type(e).__name__; log.warning("categories hook %s failed: %s", name, type(e).__name__)
+    def h_llm():
+        from . import llm; llm.CATS |= set(NEW_KEYS)
+    def h_extract():
+        from . import extract as E
+        orig = E._detect_category
+        def wrapped(t):
+            r = orig(t)
+            return r if r is not None else detect_new(t)[0]
+        E._detect_category = wrapped
+    def h_sites():
+        from . import discovery, scandeep, scanplus
+        for mod, attr in ((discovery, "SITES"), (scandeep, "SITES"), (scanplus, "SITE_PACK")):
+            d = getattr(mod, attr)
+            for k in ORDER:
+                if k not in d and CATS[k]["sites"]: d[k] = list(CATS[k]["sites"])
+    def h_feeds():
+        from . import feeds, brain_plus
+        for k in ORDER:
+            if k not in feeds.CAT_HE: feeds.CAT_HE[k] = CATS[k]["label"]
+            if k not in brain_plus.CAT_HE: brain_plus.CAT_HE[k] = CATS[k]["label"]
+        orig = feeds._intent
+        def intent(params):
+            c = params.get("category")
+            if c in NEW_KEYS:
+                if c in ("commercial_re", "roommates", "land"): return orig({**params, "category": "real_estate"})   # same rent-vs-sale logic as homes
+                return CATS[c]["intent"]
+            return orig(params)
+        feeds._intent = intent
+    def h_nl():
+        from . import nlsearch as N
+        for k in NEW_KEYS:
+            words = tuple(w for w in (*CATS[k]["strong"],) if len(w) > 2)[:8]
+            N._CATS.setdefault(k, words)
+        orig_q = N.parse_search
+        def parse(text):
+            p = orig_q(text)
+            if p.get("category") is None:
+                k, s, sub = detect_new(text)
+                if k: p["category"] = k; p["name"] = " · ".join(x for x in (label(k), p.get("location")) if x); p["questions"] = [q for q in p.get("questions", []) if "סוג הזדמנות" not in q]
+            if p.get("category") in CATS and "sub_category" not in p: p["sub_category"] = detect_sub(p["category"], text)
+            return p
+        N.parse_search = parse
+    for n, f in (("llm", h_llm), ("extract", h_extract), ("sites", h_sites), ("feeds", h_feeds), ("nlsearch", h_nl)): hook(n, f)
+    return out
+# ---- API ----
+def _public(c: dict, full=True) -> dict:
+    d = {"key": c["key"], "label": c["label"], "group": c["group"], "icon": c["icon"], "builtin": c["builtin"], "parent": c["parent"]}
+    if full: d |= {"subs": [{"key": s["key"], "label": s["label"]} for s in c["subs"]], "attrs": c["attrs"], "sites": c["sites"]}
+    return d
+@router.get("/api/categories")
+def list_categories(full: bool = True):
+    """Public (no secrets): the registry the UI renders its pickers from."""
+    return {"count": len(CATS), "groups": groups(), "items": [_public(CATS[k], full) for k in ORDER]}
+@router.get("/api/categories/{key}")
+def get_category(key: str):
+    from fastapi import HTTPException
+    if key not in CATS: raise HTTPException(404, "Category not found")
+    return _public(CATS[key])
+class DetectIn(BaseModel): text: str = Field(min_length=2, max_length=2000)
+@router.post("/api/categories/detect")
+def detect(b: DetectIn):
+    from .extract import detect_category
+    base = detect_category(b.text)   # already includes new categories after install()
+    k = base or detect_new(b.text)[0]
+    return {"category": k, "label": label(k) if k else None, "sub_category": detect_sub(k, b.text) if k else None}

@@ -36,10 +36,17 @@ def risks(ex: dict, s_cfg) -> list[str]:
     if ex.get("category") == "vehicles" and ex.get("km") and ex.get("year") and ex["km"] > 40000 * max(1, 2026 - ex["year"]) : r.append("Unusually high mileage for its age")
     return list(dict.fromkeys(r))
 
+def _related(a, b) -> bool:
+    """A specialisation of the searched category (e.g. smartphones for an electronics search) is a category match."""
+    try:
+        from .categories import compatible
+        return compatible(a, b)
+    except Exception: return False
+
 def score(ex: dict, cfg, text: str, fresh: float = 1.0) -> dict:
     w = {**DEFAULT_W, **(cfg.weights or {})}
     f, missing, reasons, hi = {}, [], [], []
-    f["category"] = 1.0 if ex["category"] == cfg.category else (0.3 if ex["category"] is None else 0.0)
+    f["category"] = 1.0 if ex["category"] == cfg.category else (0.3 if ex["category"] is None else (0.85 if _related(ex["category"], cfg.category) else 0.0))
     if ex["category"] is None: missing.append("category")
     want = canon_city(cfg.location)
     if not cfg.location: f["location"] = 1.0

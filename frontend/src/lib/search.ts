@@ -4,7 +4,9 @@ export type ParsedSearch = {
   min_price: number | null; max_price: number | null;
   required_keywords: string[]; excluded_keywords: string[]; min_score: number;
 };
-export const CATEGORIES: Record<string, string> = { real_estate: "נדל״ן", vehicles: "רכב", electronics: "אלקטרוניקה", business: "עסקים", services: "שירותים", other: "אחר" };
+import { CATALOG } from "./catalog.ts";
+// The original six keep their labels and order; the registry (49 categories) is appended.
+export const CATEGORIES: Record<string, string> = { real_estate: "נדל״ן", vehicles: "רכב", electronics: "אלקטרוניקה", business: "עסקים", services: "שירותים", other: "אחר", ...Object.fromEntries(CATALOG.filter(c => !["real_estate", "vehicles", "electronics", "business", "services", "other"].includes(c.key)).map(c => [c.key, c.label])) };
 
 export function toSearchBody(p: ParsedSearch, categoryFallback?: string) {
   const category = p.category || categoryFallback || "";
