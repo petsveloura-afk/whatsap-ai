@@ -90,3 +90,13 @@ def test_resend_api_is_used_when_key_is_set(monkeypatch):
     assert mail.configured()
     mail._send_resend("a@b.com", "subj", "body", "<b>x</b>")   # direct call: another test replaces mail.send_mail globally without restoring it
     assert calls[0][0].startswith("https://api.resend.com") and calls[0][1]["to"] == ["a@b.com"] and calls[0][2]["Authorization"] == "Bearer re_test"
+
+
+def test_verification_link_signs_the_user_in(smtp):
+    _reg("ev-auto@x.com")
+    d = c.post("/api/auth/verify-email", json={"token": _token(smtp)}).json()
+    assert d["ok"] and d["access_token"] and d["refresh_token"]
+    h = {"Authorization": "Bearer " + d["access_token"]}
+    me = c.get("/api/auth/me", headers=h).json(); assert me["email"] == "ev-auto@x.com" and me["email_verified"] is True
+    assert c.get("/api/searches", headers=h).status_code == 200
+    assert c.post("/api/auth/refresh", json={"refresh_token": d["refresh_token"]}).status_code == 200

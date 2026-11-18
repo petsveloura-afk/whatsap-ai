@@ -3,14 +3,19 @@ import { useEffect, useState } from "react";
 type Api = (path: string, o?: any) => Promise<any>;
 
 /** v3.17: handles the link from the verification e-mail (?verify=TOKEN). Works logged-in or logged-out. */
-export function VerifyLinkHandler({ api }: { api: Api }) {
+export function VerifyLinkHandler({ api, onSession }: { api: Api; onSession?: (d: any) => void }) {
   const [res, setRes] = useState<{ ok: boolean; text: string } | null>(null);
   useEffect(() => {
     const t = new URLSearchParams(location.search).get("verify");
     if (!t) return;
     try { history.replaceState(null, "", location.pathname + location.hash); } catch {}   // the token never stays in the address bar / history
     api("/api/auth/verify-email", { method: "POST", body: { token: t } })
-      .then(() => { setRes({ ok: true, text: "כתובת האימייל אומתה בהצלחה ✓" }); window.dispatchEvent(new Event("email-verified")); })
+      .then((d: any) => {
+        const inn = !!(d && d.access_token && onSession);
+        setRes({ ok: true, text: inn ? "כתובת האימייל אומתה בהצלחה ✓ מכניסים אתכם למערכת…" : "כתובת האימייל אומתה בהצלחה ✓" });
+        window.dispatchEvent(new Event("email-verified"));
+        if (inn) onSession!(d);   // the link proves mailbox ownership: sign in with no second password prompt
+      })
       .catch((e: any) => setRes({ ok: false, text: e?.message || "קישור האימות אינו תקף או שפג תוקפו." }));
   }, []);
   useEffect(() => { if (!res) return; const id = setTimeout(() => setRes(null), 9000); return () => clearTimeout(id); }, [res]);

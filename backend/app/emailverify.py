@@ -78,7 +78,8 @@ def verify_email(b: VerifyIn, db: Session = Depends(get_db)):
     r.used = True
     if u.email_verified_at is None: u.email_verified_at = dt.datetime.now(dt.timezone.utc)
     _m.audit(db, u, "auth.email_verified", u.id); db.commit()
-    return {"ok": True, "email": u.email}
+    # v3.18: the link came from the user's own mailbox, so it proves who they are: sign them in right away (no second login).
+    return {"ok": True, "email": u.email, **_m._issue(db, u.id)}
 
 
 @router.post("/api/auth/resend-verification", status_code=202)

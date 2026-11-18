@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Wizard, SourcesPanel, MemoryPanel, Notifications, AdminPanel } from "./panels";
 import { VerifyBanner, VerifyLinkHandler, VerifyGate } from "./verify";
+import { TopProgress, Splash, CountUp, CommandPalette } from "./ux";
 import { GrowthPanel } from "./growth";
 import { AssistantPanel } from "./assistant";
 import { AgentPanel, DiscoverPanel } from "./agent";
@@ -19,7 +20,12 @@ async function refresh(): Promise<boolean> {
   if (!r.ok) { sessionStorage.removeItem("rt"); return false; }
   const d = await r.json(); access = d.access_token; sessionStorage.setItem("rt", d.refresh_token); return true;
 }
-async function api(path: string, o: any = {}, retry = true): Promise<any> {
+const busy = (d: number) => { try { window.dispatchEvent(new CustomEvent("api-busy", { detail: d })); } catch {} };
+async function api(path: string, o: any = {}, retry = true): Promise<any> {   // v3.18: same behaviour, plus a global "request in flight" signal for the top progress bar
+  busy(1);
+  try { return await apiCore(path, o, retry); } finally { busy(-1); }
+}
+async function apiCore(path: string, o: any = {}, retry = true): Promise<any> {
   let r: Response;
   try { r = await fetch(API + path, { method: o.method, body: o.body ? JSON.stringify(o.body) : undefined, headers: { "Content-Type": "application/json", ...(access ? { Authorization: "Bearer " + access } : {}) } }); }
   catch { throw new Error(friendlyError(null, null, true)); }   // "Failed to fetch": no connection / CORS / server asleep -> say what to do
@@ -56,7 +62,7 @@ const TABS: [string, string, string][] = [["overview", "סקירה", "home"], ["
 function Dash({ user, onLogout }: any) {
   const [searches, setSearches] = useState<any[]>([]), [listings, setListings] = useState<any[]>([]), [ov, setOv] = useState<any>({}), [agents, setAgents] = useState<any[]>([]);
   const [sub, setSub] = useState<any>({}), [users, setUsers] = useState<any[]>([]), [msg, setMsg] = useState(""), [sid, setSid] = useState(""), [text, setText] = useState("");
-  const [f, setF] = useState({ name: "", category: "real_estate", sub: "", location: "", max_price: "" }), [live, setLive] = useState(false), [toast, setToast] = useState("");
+  const [f, setF] = useState({ name: "", category: "real_estate", sub: "", location: "", max_price: "" }), [live, setLive] = useState(false), [toast, setToast] = useState(""), [loaded, setLoaded] = useState(false);
   const isAdmin = ["admin", "super_admin", "support"].includes(user.role);
   const tabs = isAdmin ? [...TABS, ["admin", "ניהול", "settings"] as [string, string, string]] : TABS;
   const [tab, setTab] = useState(() => { const h = location.hash.replace("#", ""); return tabs.some(t => t[0] === h) ? h : "overview"; });
@@ -67,7 +73,7 @@ function Dash({ user, onLogout }: any) {
       const [s, l, o, a, b] = await Promise.all([api("/api/searches"), api("/api/listings"), api("/api/dashboard/overview"), api("/api/agents"), api("/api/billing/subscription")]);
       setSearches(s); setListings(l); setOv(o); setAgents(a); setSub(b); setSid((cur: string) => s.some((x: any) => x.id === cur) ? cur : (s[0]?.id || ""));
       if (isAdmin) setUsers(await api("/api/admin/users"));
-    } catch (e: any) { setMsg(e.message); }
+    } catch (e: any) { setMsg(e.message); } finally { setLoaded(true); }
   }, [sid, isAdmin]);
   useEffect(() => { load(); }, []);
   useEffect(() => {
@@ -91,19 +97,20 @@ function Dash({ user, onLogout }: any) {
   const planLabel = ({ starter: "Starter", pro: "Pro", vip: "VIP" } as any)[sub.plan] || sub.plan || "-";
   const kpis: [string, any, string, string][] = [["סה״כ הזדמנויות", ov.total_listings, "layers", "var(--cy)"], ["התאמות גבוהות", ov.high_quality, "star", "var(--gr)"], ["סוננו", ov.filtered_out, "shield", "var(--pk)"], ["חיפושים פעילים", ov.active_searches, "radar", "var(--vi)"]];
   return <div className="shell">
+    <CommandPalette items={[...tabs.map(([k, v], idx) => ({ id: "tab-" + k, label: v, hint: "Alt+" + (idx + 1), nav: true, run: () => go(k) })), { id: "act-refresh", label: "רענון נתונים", run: () => { load(); } }, { id: "act-logout", label: "יציאה מהמערכת", run: () => { logout(); } }]} />
     <aside className="side"><h1 className="brand">Smart Sniper AI</h1>
-      <nav className="nav" aria-label="ניווט ראשי">{tabs.map(([k, v, ic]) => <button key={k} aria-current={tab === k ? "page" : undefined} onClick={() => go(k)}><Icon n={ic} />{v}{k === "opps" && newCount > 0 && <span className="badge">{newCount}</span>}</button>)}</nav>
+      <nav className="nav" aria-label="ניווט ראשי">{tabs.map(([k, v, ic], idx) => <button key={k} title={"Alt+" + (idx + 1)} aria-current={tab === k ? "page" : undefined} onClick={() => go(k)}><Icon n={ic} />{v}{k === "opps" && newCount > 0 && <span className="badge">{newCount}</span>}</button>)}</nav>
       <div className="me-box"><b>{user.email}</b><span>חבילה: <span className="plan">{planLabel}</span></span><span className="live"><i className={"dot " + (live ? "on" : "off")} /><span className={live ? "ok" : "err"}>{live ? "חי" : "לא מחובר"}</span></span></div>
       <button className="ghost side-foot" onClick={logout}><Icon n="logout" /> יציאה</button></aside>
     <main className="main">
       <header className="top"><div className="who"><span className="live"><i className={"dot " + (live ? "on" : "off")} /><span className={live ? "ok" : "err"}>{live ? "חי" : "לא מחובר"}</span></span><span>{user.email}</span><span>חבילה: <span className="plan">{planLabel}</span></span></div>
-        <div className="who"><button className="ghost sm" onClick={load}><Icon n="bolt" /> רענן</button><button className="ghost sm" onClick={logout}><Icon n="logout" /> יציאה</button></div></header>
+        <div className="who"><button className="ghost sm" onClick={() => window.dispatchEvent(new Event("open-palette"))} title="Ctrl+K">חיפוש מהיר</button><button className="ghost sm" onClick={load}><Icon n="bolt" /> רענן</button><button className="ghost sm" onClick={logout}><Icon n="logout" /> יציאה</button></div></header>
       <div className="err">{msg}</div>
       <VerifyBanner api={api} user={user} flash={flash} />
 
       <section {...show("overview")}>
         <div className="tab-h"><div><h2>שלום, הנה מה שקורה עכשיו</h2><p>סיכום חי של ההזדמנויות, הסוכנים וההתראות שלך.</p></div><button onClick={() => go("opps")}><Icon n="target" /> לכל ההזדמנויות</button></div>
-        <div className="kpis">{kpis.map(([k, v, ic, col]) => <div className="kpi" key={k} style={{ "--k": col } as any}><span><Icon n={ic} />{k}</span><b>{v ?? "-"}</b></div>)}</div>
+        <div className="kpis">{kpis.map(([k, v, ic, col]) => <div className="kpi" key={k} style={{ "--k": col } as any}><span><Icon n={ic} />{k}</span><b>{loaded ? <CountUp v={v} /> : <span className="skeleton" style={{ display: "inline-block", minWidth: "3ch" }} />}</b></div>)}</div>
         <div className="cols">
           <div className="card"><h3>ההזדמנויות המובילות</h3>
             {top.length === 0 && <div className="empty-big"><div className="orb" aria-hidden="true" /><h3>עוד אין התאמות</h3><p>צור חיפוש והבא מודעות כדי להתחיל.</p><button onClick={() => go("discover")}><Icon n="radar" /> להבאת הזדמנויות</button></div>}
@@ -171,8 +178,12 @@ export default function App() {
   const rt = location.pathname === "/reset" ? new URLSearchParams(location.search).get("token") : null;
   useEffect(() => { refresh().then(ok => ok ? api("/api/auth/me").then(setUser) : null).catch(() => {}).finally(() => setReady(true)); }, []);
   if (rt) return <Reset token={rt} />;
-  if (!ready) return null;
-  return <><VerifyLinkHandler api={api} />{user ? (user.verification_required && user.email_verified === false
+  const onSession = async (d: any) => {   // sign-in handed over by the e-mail verification link
+    access = d.access_token; try { sessionStorage.setItem("rt", d.refresh_token); } catch {}
+    try { setUser(await api("/api/auth/me")); } catch {}
+  };
+  if (!ready) return <><TopProgress /><Splash /></>;
+  return <><TopProgress /><VerifyLinkHandler api={api} onSession={onSession} />{user ? (user.verification_required && user.email_verified === false
     ? <VerifyGate api={api} user={user} onUser={setUser} onLogout={() => { try { sessionStorage.removeItem("rt"); } catch {} setUser(null); }} />
     : <Dash user={user} onLogout={() => setUser(null)} />) : <Landing onAuth={setUser} />}</>;
 }
