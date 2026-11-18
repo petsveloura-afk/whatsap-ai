@@ -43,6 +43,8 @@ class OrderIn(BaseModel):
 def create_order(b: OrderIn, u: User = Depends(_m.current_user), db: Session = Depends(get_db)):
     """Creates the payment record + PayPal order. The amount is computed HERE from the plan table; the browser cannot influence it."""
     if not paypal.configured() or (b.method == "card" and not paypal.cards_enabled()): raise HTTPException(503, "אמצעי התשלום אינו זמין כרגע")
+    from . import emailverify as _ev
+    if not _ev.is_verified(u): raise HTTPException(403, _ev.NEED_MSG)   # receipts go to this address: it must be confirmed first
     _limit("order:" + u.id, 12, 600)
     ok, why = bc.can_buy(billing.sub_view(billing.get_sub(db, u.id)), b.plan)
     if not ok: raise HTTPException(409, why)

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Wizard, SourcesPanel, MemoryPanel, Notifications, AdminPanel } from "./panels";
+import { VerifyBanner, VerifyLinkHandler } from "./verify";
 import { GrowthPanel } from "./growth";
 import { AssistantPanel } from "./assistant";
 import { AgentPanel, DiscoverPanel } from "./agent";
@@ -98,6 +99,7 @@ function Dash({ user, onLogout }: any) {
       <header className="top"><div className="who"><span className="live"><i className={"dot " + (live ? "on" : "off")} /><span className={live ? "ok" : "err"}>{live ? "חי" : "לא מחובר"}</span></span><span>{user.email}</span><span>חבילה: <span className="plan">{planLabel}</span></span></div>
         <div className="who"><button className="ghost sm" onClick={load}><Icon n="bolt" /> רענן</button><button className="ghost sm" onClick={logout}><Icon n="logout" /> יציאה</button></div></header>
       <div className="err">{msg}</div>
+      <VerifyBanner api={api} user={user} flash={flash} />
 
       <section {...show("overview")}>
         <div className="tab-h"><div><h2>שלום, הנה מה שקורה עכשיו</h2><p>סיכום חי של ההזדמנויות, הסוכנים וההתראות שלך.</p></div><button onClick={() => go("opps")}><Icon n="target" /> לכל ההזדמנויות</button></div>
@@ -170,5 +172,5 @@ export default function App() {
   useEffect(() => { refresh().then(ok => ok ? api("/api/auth/me").then(setUser) : null).catch(() => {}).finally(() => setReady(true)); }, []);
   if (rt) return <Reset token={rt} />;
   if (!ready) return null;
-  return user ? <Dash user={user} onLogout={() => setUser(null)} /> : <Landing onAuth={setUser} />;
+  return <><VerifyLinkHandler api={api} />{user ? <Dash user={user} onLogout={() => setUser(null)} /> : <Landing onAuth={setUser} />}</>;
 }

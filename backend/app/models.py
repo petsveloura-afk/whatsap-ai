@@ -14,6 +14,7 @@ class User(Base):
     whatsapp_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     whatsapp_consent: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    email_verified_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)   # v3.17: NULL = not verified yet
 class SearchConfig(Base):
     __tablename__ = "search_configs"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
@@ -73,6 +74,14 @@ class RefreshToken(Base):
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
 class PasswordReset(Base):
     __tablename__ = "password_resets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+    used: Mapped[bool] = mapped_column(Boolean, default=False)
+class EmailVerification(Base):
+    """v3.17: one-time e-mail verification links. Only a SHA-256 hash of the token is stored (same approach as password resets)."""
+    __tablename__ = "email_verifications"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)

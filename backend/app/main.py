@@ -53,6 +53,8 @@ def register(c: RegIn, request: Request, db: Session = Depends(get_db)):
     boot = [e.strip().lower() for e in os.environ.get("SUPER_ADMIN_EMAILS", "").split(",") if e.strip()]
     u = User(email=email, password_hash=hash_pw(c.password), role="super_admin" if email in boot else "user"); db.add(u); db.commit()
     audit(db, u, "auth.register", u.id); db.commit()
+    try: from . import emailverify as _ev; _ev.start(db, u)   # v3.17: send the verification link (never blocks or fails the registration)
+    except Exception as e: log.warning("verification mail not started: %s", type(e).__name__)
     return {"id": u.id, "email": u.email}
 @app.post("/api/auth/login")
 def login(c: Cred, request: Request, db: Session = Depends(get_db)):
@@ -66,7 +68,11 @@ def login(c: Cred, request: Request, db: Session = Depends(get_db)):
     authsec.record_success(email)
     return _issue(db, u.id)
 @app.get("/api/auth/me")
-def me(u: User = Depends(current_user)): return {"id": u.id, "email": u.email, "role": u.role}
+def me(u: User = Depends(current_user)):
+    out = {"id": u.id, "email": u.email, "role": u.role}
+    try: from . import emailverify as _ev; out.update(_ev.status(u))   # v3.17: email_verified / verification_required
+    except Exception: pass
+    return out
 class SearchIn(BaseModel):
     name: str
     category: str
@@ -393,6 +399,8 @@ def my_sub(u: User = Depends(current_user), db: Session = Depends(get_db)):
 class CheckoutIn(BaseModel): plan: str = Field(pattern="^(pro|vip)$")
 @app.post("/api/billing/checkout")
 def checkout(b: CheckoutIn, u: User = Depends(current_user), db: Session = Depends(get_db)):
+    from . import emailverify as _ev
+    if not _ev.is_verified(u): raise HTTPException(403, _ev.NEED_MSG)
     pid = paypal.plan_ids()[b.plan]
     if not paypal.configured() or not pid: raise HTTPException(503, "PayPal not configured")
     if _plan(db, u) != "starter": raise HTTPException(409, "Already subscribed")
@@ -512,6 +520,11 @@ try:   # v9 profile + diagnostics (additive): registered like every other option
     app.include_router(routes_v9.router)
 except Exception:
     import logging as _lg; _lg.getLogger("sniper").exception("routes_v9 not loaded (core API unaffected)")
+try:   # v3.17 e-mail verification (additive; enforced only when SMTP is configured)
+    from . import emailverify
+    app.include_router(emailverify.router)
+except Exception:
+    import logging as _lg; _lg.getLogger("sniper").exception("emailverify not loaded (core API unaffected)")
 try:   # v10 category API (public registry, no secrets)
     from . import categories as _c2
     app.include_router(_c2.router)

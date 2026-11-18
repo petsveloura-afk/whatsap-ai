@@ -24,3 +24,13 @@ button,a,[role="tab"],select,summary{touch-action:manipulation;-webkit-tap-highl
 .mem-actions .ghost{flex:1 1 auto;inline-size:auto;margin:0}
 .mem-actions .danger-zone{border-color:rgba(248,113,113,.5);color:var(--bad)}
 @media (max-width:640px){.mem-actions .ghost{flex:1 1 100%;min-block-size:44px}}
+
+/* v3.17 e-mail verification */
+.verify-banner{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.6rem 1rem;padding:.75rem .9rem;margin:.5rem 0;border-radius:var(--r-s);background:var(--warn-soft);border:1px solid rgba(251,191,36,.5)}
+.verify-banner>div:first-child{display:grid;gap:.15rem;min-inline-size:0;flex:1 1 260px}
+.verify-banner span{font-size:.9rem;color:var(--mut);overflow-wrap:anywhere}
+.verify-act{display:flex;flex-wrap:wrap;gap:.5rem}
+.verify-act button{inline-size:auto;margin:0;min-block-size:40px}
+.verify-toast{position:fixed;inset-inline:.75rem;inset-block-start:calc(.75rem + env(safe-area-inset-top,0px));z-index:90;max-inline-size:520px;margin-inline:auto;padding:.8rem 1rem;border-radius:var(--r-s);font-weight:700;text-align:center;box-shadow:0 12px 34px -10px rgba(0,0,0,.6);cursor:pointer}
+.verify-toast.ok{background:rgba(16,185,129,.95);color:#fff}.verify-toast.bad{background:rgba(220,38,38,.95);color:#fff}
+@media (max-width:640px){.verify-act{inline-size:100%}.verify-act button{flex:1 1 45%;min-block-size:44px}}
