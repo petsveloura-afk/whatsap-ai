@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Wizard, SourcesPanel, MemoryPanel, Notifications, AdminPanel } from "./panels";
 import { VerifyBanner, VerifyLinkHandler, VerifyGate } from "./verify";
 import { TopProgress, Splash, CountUp, CommandPalette } from "./ux";
@@ -62,7 +62,7 @@ const TABS: [string, string, string][] = [["overview", "סקירה", "home"], ["
 function Dash({ user, onLogout }: any) {
   const [searches, setSearches] = useState<any[]>([]), [listings, setListings] = useState<any[]>([]), [ov, setOv] = useState<any>({}), [agents, setAgents] = useState<any[]>([]);
   const [sub, setSub] = useState<any>({}), [users, setUsers] = useState<any[]>([]), [msg, setMsg] = useState(""), [sid, setSid] = useState(""), [text, setText] = useState("");
-  const [f, setF] = useState({ name: "", category: "real_estate", sub: "", location: "", max_price: "" }), [live, setLive] = useState(false), [toast, setToast] = useState(""), [loaded, setLoaded] = useState(false);
+  const [f, setF] = useState({ name: "", category: "real_estate", sub: "", location: "", max_price: "" }), [live, setLive] = useState(false), liveRef = useRef(false), [toast, setToast] = useState(""), [loaded, setLoaded] = useState(false);
   const isAdmin = ["admin", "super_admin", "support"].includes(user.role);
   const tabs = isAdmin ? [...TABS, ["admin", "ניהול", "settings"] as [string, string, string]] : TABS;
   const [tab, setTab] = useState(() => { const h = location.hash.replace("#", ""); return tabs.some(t => t[0] === h) ? h : "overview"; });
@@ -85,8 +85,12 @@ function Dash({ user, onLogout }: any) {
       ws.onmessage = m => { if (JSON.parse(m.data).type?.startsWith("listing.")) { load(); flash("הזדמנות חדשה התקבלה"); } };
       ws.onclose = () => { setLive(false); if (!dead) t = setTimeout(open, Math.min(30000, 1000 * 2 ** n++)); };
     };
-    open(); return () => { dead = true; clearTimeout(t); ws && ws.close(); };
+    open();
+    // Fallback: if the live channel is down (proxy/network), keep data fresh by polling so new opportunities still appear.
+    const poll = setInterval(() => { if (!document.hidden && !liveRef.current) load(); }, 45000);
+    return () => { dead = true; clearTimeout(t); clearInterval(poll); ws && ws.close(); };
   }, []);
+  useEffect(() => { liveRef.current = live; }, [live]);
   const act = async (fn: () => Promise<any>) => { try { setMsg(""); await fn(); await load(); } catch (e: any) { setMsg(e.message); } };
   const create = () => act(() => api("/api/searches", { method: "POST", body: { name: [(f.name || "").trim(), f.sub && !(f.name || "").includes(subLabel(f.category, f.sub)) ? subLabel(f.category, f.sub) : ""].filter(Boolean).join(" · ") || "חיפוש חדש", category: f.category, location: f.location || null, max_price: f.max_price ? Number(f.max_price) : null } }));
   const ingest = () => act(async () => { const r = await api("/api/listings/ingest", { method: "POST", body: { search_id: sid, text } }); setMsg(`נקלט: ${r.status}, ציון ${r.score}`); setText(""); });
@@ -100,10 +104,10 @@ function Dash({ user, onLogout }: any) {
     <CommandPalette items={[...tabs.map(([k, v], idx) => ({ id: "tab-" + k, label: v, hint: "Alt+" + (idx + 1), nav: true, run: () => go(k) })), { id: "act-refresh", label: "רענון נתונים", run: () => { load(); } }, { id: "act-logout", label: "יציאה מהמערכת", run: () => { logout(); } }]} />
     <aside className="side"><h1 className="brand">Smart Sniper AI</h1>
       <nav className="nav" aria-label="ניווט ראשי">{tabs.map(([k, v, ic], idx) => <button key={k} title={"Alt+" + (idx + 1)} aria-current={tab === k ? "page" : undefined} onClick={() => go(k)}><Icon n={ic} />{v}{k === "opps" && newCount > 0 && <span className="badge">{newCount}</span>}</button>)}</nav>
-      <div className="me-box"><b>{user.email}</b><span>חבילה: <span className="plan">{planLabel}</span></span><span className="live"><i className={"dot " + (live ? "on" : "off")} /><span className={live ? "ok" : "err"}>{live ? "חי" : "לא מחובר"}</span></span></div>
+      <div className="me-box"><b>{user.email}</b><span>חבילה: <span className="plan">{planLabel}</span></span><span className="live" title={live ? "חיבור בזמן אמת פעיל: הזדמנויות חדשות יופיעו מיד" : "החיבור בזמן אמת מנותק, המערכת מרעננת נתונים אוטומטית כל 45 שניות. אין קשר להתחברות שלך לחשבון"}><i className={"dot " + (live ? "on" : "off")} /><span className={live ? "ok" : "err"}>{live ? "חי" : "מתחבר..."}</span></span></div>
       <button className="ghost side-foot" onClick={logout}><Icon n="logout" /> יציאה</button></aside>
     <main className="main">
-      <header className="top"><div className="who"><span className="live"><i className={"dot " + (live ? "on" : "off")} /><span className={live ? "ok" : "err"}>{live ? "חי" : "לא מחובר"}</span></span><span>{user.email}</span><span>חבילה: <span className="plan">{planLabel}</span></span></div>
+      <header className="top"><div className="who"><span className="live" title={live ? "חיבור בזמן אמת פעיל: הזדמנויות חדשות יופיעו מיד" : "החיבור בזמן אמת מנותק, המערכת מרעננת נתונים אוטומטית כל 45 שניות. אין קשר להתחברות שלך לחשבון"}><i className={"dot " + (live ? "on" : "off")} /><span className={live ? "ok" : "err"}>{live ? "חי" : "מתחבר..."}</span></span><span>{user.email}</span><span>חבילה: <span className="plan">{planLabel}</span></span></div>
         <div className="who"><button className="ghost sm" onClick={() => window.dispatchEvent(new Event("open-palette"))} title="Ctrl+K">חיפוש מהיר</button><button className="ghost sm" onClick={load}><Icon n="bolt" /> רענן</button><button className="ghost sm" onClick={logout}><Icon n="logout" /> יציאה</button></div></header>
       <div className="err">{msg}</div>
       <VerifyBanner api={api} user={user} flash={flash} />
